@@ -1,5 +1,4 @@
 numpy
 scipy
 ezyrb
-turbulucid @ git+https://git@github.com/timofeymukha/turbulucid.git
 matplotlib
