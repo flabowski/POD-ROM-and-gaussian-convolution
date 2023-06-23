@@ -1,11 +1,11 @@
 from unittest import TestCase, main
-import smooth_POD_ROM as sROM
 from smooth_POD_ROM.io import get_data, get_field
 import os
 
 
 class TestDataImport(TestCase):
-    file = "./data/damBreak_0010_0010_1_0.vtk"
+    file = os.path.join(os.path.dirname(__file__),
+                        "data/damBreak_0010_0010_1_0.vtk")
 
     def test_get_data(self):
         points, triangles, point_data_dict = get_data(self.file)
