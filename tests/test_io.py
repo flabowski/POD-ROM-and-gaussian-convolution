@@ -5,8 +5,7 @@ import os
 
 
 class TestDataImport(TestCase):
-    file = os.path.dirname(sROM.__file__) + \
-        "/../../tests/data/damBreak_0010_0010_1_0.vtk"
+    file = "./data/damBreak_0010_0010_1_0.vtk"
 
     def test_get_data(self):
         points, triangles, point_data_dict = get_data(self.file)

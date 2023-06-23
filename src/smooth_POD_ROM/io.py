@@ -1,16 +1,10 @@
-import glob
-import re
 import os
-from turbulucid import Case
 import numpy as np
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
-import smooth_POD_ROM as sROM
 
 
 def get_data(file):
-    file = os.path.dirname(sROM.__file__) + \
-        "/../../tests/data/damBreak_0010_0010_1_0.vtk"
 
     reader = vtk.vtkPolyDataReader()
     reader.SetFileName(file)

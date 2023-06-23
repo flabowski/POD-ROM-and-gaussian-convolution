@@ -1,67 +1,46 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import vtk
-from vtk.numpy_interface import dataset_adapter as dsa
-from vtk.util.numpy_support import vtk_to_numpy
-from mpl_toolkits import axes_grid1
+# import vtk
+# from vtk.numpy_interface import dataset_adapter as dsa
+# from vtk.util.numpy_support import vtk_to_numpy
+# from mpl_toolkits import axes_grid1
 from matplotlib.collections import PatchCollection
 from matplotlib.collections import PolyCollection
 from matplotlib.collections import LineCollection
-from smooth_POD_ROM.io import on_regular_grid
+# from smooth_POD_ROM.io import on_regular_grid
 
 
 def plot_field(polys, data, **kwargs):
-    # clippedData = cases[0].vtkData
-    # data = np.copy(vtk_to_numpy(clippedData.GetCellData()['alpha.water']))
-
     polyCollection = PolyCollection(polys, **kwargs)
-
     if "edgecolor" not in kwargs:
         polyCollection.set_edgecolor("face")
     polyCollection.set_array(data)
 
     ax = plt.gca()
     ax.add_collection(polyCollection)
-
-    # if colorbar:
-    #     add_colorbar(polyCollection)
-
-    # if plotBoundaries:
-    #     plot_boundaries(case, scaleX=scaleX, scaleY=scaleY)
-
-    # ax.set_xlim(xlim/scaleX)
-    # ax.set_ylim(ylim/scaleY)
     ax.set_aspect('equal')
-
     return polyCollection
 
 
-def plot_mesh(case):
-    points = case.cellCentres
-    # data = case[field]
-    polys = get_tri_mesh(case)
+def plot_mesh(points, polys):
     ax1 = plt.gca()
     collection = LineCollection(polys, colors='black')
     ax1.add_collection(collection)
     ax1.plot(points[:, 0], points[:, 1], "b.", ms=1, zorder=2)
     ax1.set_xlim([np.min(polys), np.max(polys)])
     ax1.set_ylim([np.min(polys), np.max(polys)])
-    # plt.show()
     return
 
 
-def plot_structured_field(x, y, data_on_grid, mesh=False):
-    X, Y = np.meshgrid(x, y, indexing="ij")
-
+def plot_structured_field(X, Y, data_on_grid, mesh=False):
+    # X, Y = np.meshgrid(x, y, indexing="ij")
     # dont use imshow!
     ax = plt.gca()
     if mesh:
-        quadmesh = plt.pcolormesh(X, Y, data_on_grid.T, edgecolors='k', lw=1)
-    else:
-        quadmesh = plt.pcolormesh(X, Y, data_on_grid.T)
-    add_colorbar(quadmesh)
-    if mesh:
+        quadmesh = plt.pcolormesh(X, Y, data_on_grid, edgecolors='k', lw=1)
         ax.plot(X.ravel(), Y.ravel(), "b.", ms=1)
+    else:
+        quadmesh = plt.pcolormesh(X, Y, data_on_grid)
     ax.set_aspect("equal")
     return
 

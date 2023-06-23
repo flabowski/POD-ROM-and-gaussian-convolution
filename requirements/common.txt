@@ -2,3 +2,4 @@ numpy
 scipy
 ezyrb
 matplotlib
+vtk
