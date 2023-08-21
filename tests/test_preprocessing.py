@@ -1,6 +1,10 @@
 from unittest import TestCase, main
 import numpy as np
-from smooth_POD_ROM.pre_processing import on_regular_grid, get_centers, _gauss_2d
+from datetime import datetime
+from smooth_POD_ROM.pre_processing import (on_regular_grid, get_centers,
+                                           _gauss_2d, add_padding,
+                                           remove_padding, to_frequency,
+                                           to_space)
 from scipy.ndimage import gaussian_filter
 from scipy.signal import wiener, convolve2d
 from skimage import restoration
@@ -11,6 +15,20 @@ import matplotlib.pyplot as plt
 
 
 class TestDataImport(TestCase):
+
+    def test_padding(self):
+        x, y = np.linspace(0, 1, 11)[:, None], np.linspace(0, 1, 5)[None]
+        data = np.sin(x) * np.cos(y)
+        data_padded = add_padding(data, (11+4, 5+4))
+        data2 = remove_padding(data_padded, data.shape)
+        assert np.allclose(data2, data)
+
+    def test_trafo(self):
+        x, y = np.linspace(0, 1, 11)[:, None], np.linspace(0, 1, 5)[None]
+        data = np.sin(x) * np.cos(y)
+        data_f = to_frequency(data)
+        data2 = to_space(data_f)
+        assert np.allclose(data2, data)
 
     def test_get_centers(self):
         pts = np.array([[0.0, 0.0], [0.0, 3.0], [3.0, 3.0], [3.0, 0.0]])
@@ -30,36 +48,56 @@ class TestDataImport(TestCase):
     def test_gaussian_convolution(self):
         sigma = 4
         truncate = 2
-        x, y = np.linspace(0, 1, 100)[:, None], np.linspace(0, 1, 50)[None]
+        x, y = np.linspace(0, 1, 101)[:, None], np.linspace(0, 1, 51)[None]
         data = np.sin(x) * np.cos(y)  # data_on_grid
         data[data < .5] = 0
         data[data > .5] = 1
 
         psk = _gauss_2d(sigma, truncate=truncate)
         kernel_size = int(4 * sigma) + 1
-        kernel = cv2.getGaussianKernel(kernel_size, sigma)
-        kernel = np.outer(kernel, kernel)
+        kernel1D = cv2.getGaussianKernel(kernel_size, sigma)
+        kernel = np.outer(kernel1D, kernel1D)
         assert np.allclose(psk, kernel), "kernel not the same"
 
-        # t1 = datetime.now()
+        t1 = datetime.now()
+
         data_smooth = gaussian_filter(data, sigma=sigma, truncate=truncate)
-        # t2 = datetime.now()
+
+        t2 = datetime.now()
+
         data_smooth2 = convolve2d(data, psk, boundary='symm', mode='same')
-        # t3 = datetime.now()
-        assert np.allclose(data_smooth, data_smooth2), "smoothing not the same"
 
-        # # ###################################################################
-        # fig, ax = plt.subplots()
-        # ax.plot(data_smooth[25, :], "g.-")
-        # ax.plot(data_smooth2[25, :], "b.-")
-        # np.allclose(data_smooth2, data_smooth)
+        t3 = datetime.now()
 
-        # fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex=True, sharey=True)
-        # ax1.imshow(data_on_grid)
-        # ax1.imshow(data_smooth)
-        # ax2.imshow(data_smooth2)
-        # ax3.imshow(data_smooth2-data_smooth)
-        # plt.show()
+        kernel_padded = add_padding(kernel, data.shape, mode="constant")
+        image_padded = add_padding(data, kernel.shape, mode="symmetric")
+
+        kernel_f = to_frequency(kernel_padded, shift=True)
+        image_f = to_frequency(image_padded)
+
+        image_smooth_f = kernel_f*image_f
+        image_smooth = to_space(image_smooth_f)
+
+        data_smooth3 = remove_padding(image_smooth, data.shape)
+
+        t4 = datetime.now()
+        print((t2-t1).total_seconds())
+        print((t3-t2).total_seconds())
+        print((t4-t3).total_seconds())
+        assert np.allclose(
+            data_smooth, data_smooth2), "convolve2d smoothing not the same"
+        assert np.allclose(
+            data_smooth, data_smooth3), "convolution in frequency domain not the same"
+        if False:
+            fig, ((ax1, ax2, ax3), (ax12, ax22, ax32)) = plt.subplots(
+                2, 3, sharex=True, sharey=True)
+            ax1.imshow(data_smooth)
+            ax2.imshow(data_smooth2)
+            ax3.imshow(data_smooth3)
+            ax12.imshow(data_smooth-data_smooth)
+            ax22.imshow(data_smooth2-data_smooth)
+            ax32.imshow(data_smooth3-data_smooth)
+            plt.show()
 
     def test_rld(self):
         # richardson lucy deconvolution

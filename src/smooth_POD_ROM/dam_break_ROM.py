@@ -10,7 +10,7 @@ from ezyrb import POD, RBF, Database, Linear, RegularGrid
 from ezyrb import ReducedOrderModel as ROM
 from scipy.interpolate import griddata
 from smooth_POD_ROM.pre_processing import (
-    on_regular_grid, _gauss_2d, to_frequency, to_space)
+    on_regular_grid, _gauss_2d, to_frequency, to_space, add_padding)
 from smooth_POD_ROM.io import get_data, get_field
 from smooth_POD_ROM.plotting import plot_mesh, plot_field, plot_structured_field
 from copy import deepcopy
@@ -25,6 +25,7 @@ from datetime import datetime
 # TODO: ROM in frequency domain?
 # TODO: upsample in space
 # TODO: smoothen in time too
+ts = 25
 
 
 def get_snapshots():
@@ -32,7 +33,7 @@ def get_snapshots():
         "/Documents/data/VTK_Legacy_NEW/"
     mu_all = [10, 100, 1000, 2000, 5000]   # 10*2**np.arange(1, 10, 2)
     rho_all = [10, 50, 100, 400, 800, 1200]  # 10*2**np.arange(1, 8, 1)
-    t_all = [30]  # [30]  # np.arange(2, 102)
+    t_all = [ts]  # [30]  # np.arange(2, 102)
     X = []
     params = []
     for m in mu_all:
@@ -99,7 +100,7 @@ def _find_largest_elements_2d(window, k=5):
 
 def deconvolve_exact(data_on_grid_smooth_s, psf, psf_f):
     # (151, 159), (57, 57), (151, 159)
-    data_on_grid_smooth_f = (fft2(data_on_grid_smooth_s).real)
+    data_on_grid_smooth_f = fft2(data_on_grid_smooth_s)
     data_on_grid_f = data_on_grid_smooth_f / psf_f
     data_on_grid_s = to_space(data_on_grid_f)
     return data_on_grid_s
@@ -167,8 +168,10 @@ if __name__ == "__main__":
     # data_on_grid_s = gaussian_filter(data_on_grid, sigma=sigma)
     psf = _gauss_2d(sigma, truncate=4, size=False)
     # ------------------------------------------------------------------------
-    psf_f = to_frequency(psf, data_on_grid.shape)
-    data_on_grid_f = to_frequency(data_on_grid, psf.shape)
+    psf_p = add_padding(psf, data_on_grid.shape)
+    psf_f = to_frequency(psf_p, shift=True)
+    data_on_grid_p = add_padding(data_on_grid, psf.shape)
+    data_on_grid_f = to_frequency(data_on_grid_p)
     data_on_grid_smooth_f = data_on_grid_f * psf_f
     data_on_grid_s = to_space(data_on_grid_smooth_f)
     # ------------------------------------------------------------------------
@@ -205,16 +208,17 @@ if __name__ == "__main__":
         X_grid_smooth = np.empty((data_on_grid_s.size, n))
         for j in range(n):
             print(j)
-            data_on_grid = griddata(points[:, :2], snapshots[:, j], (X, Y))
-            # data_on_grid_s = gaussian_filter(data_on_grid, sigma=sigma)
-            # data_on_grid_s = convolve2d(
-            #     data_on_grid, psf, boundary='fill', mode='full')
+            _on_grid = griddata(points[:, :2], snapshots[:, j], (X, Y))
+            # _on_grid_s = gaussian_filter(_on_grid, sigma=sigma)
+            # _on_grid_s = convolve2d(_on_grid, psf,
+            #                         boundary='fill', mode='full')
             # TODO: grid size is odd in every dimension
-            data_on_grid_f = to_frequency(data_on_grid, psf.shape)
-            data_on_grid_smooth_f = data_on_grid_f * psf_f
-            data_on_grid_s = to_space(data_on_grid_smooth_f)
-            X_grid[:, j] = data_on_grid.ravel()
-            X_grid_smooth[:, j] = data_on_grid_s.ravel()
+            _on_grid_p = add_padding(_on_grid, psf.shape)
+            _on_grid_f = to_frequency(_on_grid_p)
+            _on_grid_smooth_f = _on_grid_f * psf_f
+            _on_grid_s = to_space(_on_grid_smooth_f)
+            X_grid[:, j] = _on_grid.ravel()
+            X_grid_smooth[:, j] = _on_grid_s.ravel()
         np.save(pth+"p.npy", p)
         np.save(pth+"data_on_grid.npy", X_grid)
         np.save(pth+"data_on_grid_s.npy", X_grid_smooth)
@@ -228,8 +232,8 @@ if __name__ == "__main__":
     # ROM
     reg = RegularGrid()
     pod = POD()
-    x_test = np.array([[500, 75, 30]])
-    # x_test = np.array([[100, 50, 30]])
+    x_test = np.array([[500, 75, ts]])
+    # x_test = np.array([[1000, 100, ts]])
     predictions = []
     for ss in (snapshots.T, X_grid.T, X_grid_smooth.T):
         print(p[:, :2].shape, ss.shape)
@@ -245,6 +249,7 @@ if __name__ == "__main__":
     # res_pp = local_mass_conservation(data)
     # data_decon = richardson_lucy(smoothROMprediction, psf, num_iter=30)
     data_decon = deconvolve_exact(smoothROMprediction, psf, psf_f)
+
     data_decon2 = local_mass_conservation(data_decon, 20)
     data_decon3 = local_mass_conservation(data_decon2, 10)
     data_decon4 = local_mass_conservation(data_decon3, 5)

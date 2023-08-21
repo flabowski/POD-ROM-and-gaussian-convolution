@@ -24,7 +24,7 @@ def is_odd(n):
     return n % 2 == 1
 
 
-def to_frequency(subj, shape, mode='constant'):
+def add_padding(subj, shape, mode='constant'):
     """
     subj might be image or kernel.
     """
@@ -38,11 +38,27 @@ def to_frequency(subj, shape, mode='constant'):
     pad_x, pad_y = shape
     padded = np.pad(subj, [(pad_x//2+1, pad_x//2+1), (pad_y//2+1, pad_y//2+1)],
                     mode=mode)
-    return fft2(padded)
+    return padded
+
+
+def remove_padding(subj, shape, mode='constant'):
+    """
+    subj might be image or kernel.
+    """
+    # TODO: make it work in nd
+    pad_x, pad_y = subj.shape[0]-shape[0], subj.shape[1]-shape[1]
+    return subj[pad_x//2:-pad_x//2, pad_y//2:-pad_y//2]
+
+
+def to_frequency(padded, shift=False):
+    if shift:
+        return fft2(ifftshift(padded))
+    else:
+        return fft2(padded)
 
 
 def to_space(subj):
-    return ifftshift(ifft2(subj).real)
+    return ifft2(subj).real
 
 
 def _gauss_2d(sigma, truncate=4, size=False):

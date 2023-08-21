@@ -2,52 +2,110 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import convolve2d, wiener
 from scipy.ndimage import gaussian_filter
-from smooth_POD_ROM.pre_processing import on_regular_grid, get_centers, _gauss_2d
+from smooth_POD_ROM.pre_processing import on_regular_grid, get_centers, _gauss_2d, add_padding, to_frequency
 from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from scipy import misc
+pth = "C:/Users/florianma/OneDrive - Institutt for Energiteknikk/Documents"
 # TODO: use library for NUFFT?
 
-
-m, n = 7, 7
-x, y = np.linspace(0, 1, m)[:, None], np.linspace(0, 1, n)[None]
-image = x*(1-y)  # np.sin(x) * np.cos(y)  # data_on_grid
-image[x <= 1-y] = 1
-image[x > 1-y] = 0
-
-# image = misc.face(gray=True).astype(float)[::2, ::2]
-
 # Define the Gaussian kernel size and sigma (standard deviation)
-sigma = 1.0
-truncate = 2
-mode = "reflect"
-# mode = "constant"
-
-kernel = psf = _gauss_2d(sigma, truncate=truncate)
-img_gaussian_filter = gaussian_filter(
-    image, sigma, truncate=truncate, mode=mode)  # (d c b a | a b c d | d c b a)
+sigma = 7.0
+truncate = 4
+mode = "constant"  # reflect, constant
+case = 2
 
 
-# Compute the 2D FFT of the original and smoothed images
-pad_x, pad_y = image.shape
-kernel_padded = np.pad(
-    kernel, [(pad_x//2, pad_x//2), (pad_y//2, pad_y//2)], mode='constant')
-pad_x, pad_y = kernel.shape
-# symmetric, constant
-image_padded = np.pad(
-    image, [(pad_x//2, pad_x//2), (pad_y//2, pad_y//2)], mode=mode)
+def get_test_image(case):
+    if case == 0:
+        m, n = 7, 7
+        x, y = np.linspace(0, 1, m)[:, None], np.linspace(0, 1, n)[None]
+        image = x*(1-y)  # np.sin(x) * np.cos(y)  # data_on_grid
+        image[x <= 1-y] = 1
+        image[x > 1-y] = 0
+    elif case == 1:
+        image = misc.face(gray=True).astype(float)[::2, ::2][:-1, :-1]
+    elif case == 2:
+        image = np.load(pth+"/tmp/data_on_grid.npy")
+    return image
 
-fft_original = (fft2(image_padded))
-fft_gaussian_filter = (fft2(img_gaussian_filter))
-fft_kernel = (fft2(kernel_padded))
+
+image = get_test_image(case)
+kernel = _gauss_2d(sigma, truncate=4, size=False)
+
+# pad_x, pad_y = image.shape
+# kernel_padded = np.pad(
+#     kernel, [(pad_x//2, pad_x//2), (pad_y//2, pad_y//2)], mode='constant')
+
+# pad_x, pad_y = kernel.shape
+# image_padded = np.pad(
+#     image, [(pad_x//2, pad_x//2), (pad_y//2, pad_y//2)], mode=mode)
+
+# fft_original = fft2(image_padded)
+# fft_kernel = fft2(ifftshift(kernel_padded))
+
+kernel_padded = add_padding(kernel, image.shape, mode='constant')
+image_padded = add_padding(image, kernel.shape, mode=mode)
+
+fft_kernel = to_frequency(kernel_padded, shift=True)
+fft_original = to_frequency(image_padded)
+
+
 # convolution in the frequency domain
 img_f = fft_original * fft_kernel
 # Perform inverse FFT to get the convolved image in the spatial domain
-img_s = ifftshift(ifft2(fft_original * fft_kernel).real)
+img_s = ifft2(fft_original * fft_kernel).real
 
+
+# -----------------------------------------------------------------------------
 img_reconstructed_f = img_f / fft_kernel
-img_reconstructed_s = (ifft2(img_reconstructed_f).real)
-# TODO: why do we not need ifftshit here?
-# TODO: why are the results from gaussian_filter and img_f not the same??
+img_reconstructed_s = ifft2(img_reconstructed_f).real
+# -----------------------------------------------------------------------------
+img_smooth_f2 = to_frequency(img_s)
+img_deconvolved_f = img_smooth_f2 / fft_kernel
+img_reconstructed_s2 = ifft2(img_deconvolved_f).real
+# -----------------------------------------------------------------------------
+
+fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex=True, sharey=True)
+ax1.imshow(image_padded.T, origin="lower", interpolation="nearest")
+ax2.imshow(img_reconstructed_s.T, origin="lower", interpolation="nearest")
+ax3.imshow(img_reconstructed_s2.T, origin="lower", interpolation="nearest")
+plt.show()
+
+
+if False:
+    # psf_f = to_frequency(psf, data_on_grid.shape)
+    # data_on_grid_f = to_frequency(data_on_grid, psf.shape)
+    # data_on_grid_smooth_f = data_on_grid_f * psf_f
+    # data_on_grid_s = to_space(data_on_grid_smooth_f)
+    # #data_decon = deconvolve_exact(smoothROMprediction, psf, psf_f)
+    # data_on_grid_smooth_s2 = smoothROMprediction
+    # data_on_grid_smooth_f2 = fft2(data_on_grid_smooth_s2)
+    # data_on_grid_f2 = data_on_grid_smooth_f2 / psf_f
+    # data_on_grid_s2 = to_space(data_on_grid_f2)
+    print(np.allclose(image, data_on_grid))
+    print(np.allclose(kernel, psf))
+    print(np.allclose(fft_kernel, psf_f))
+    print(np.allclose(img_f, data_on_grid_smooth_f))
+    print(np.allclose(img_s, data_on_grid_s))
+    print(np.allclose(img_s, smoothROMprediction))  # True!
+
+    print(np.allclose(img_s, data_on_grid_smooth_s2))
+    print(np.allclose(data_on_grid_smooth_f2, data_on_grid_smooth_f))  # !
+
+    print(np.allclose(data_decon, img_reconstructed_s))  # !
+
+    a, b = data_on_grid_smooth_f2, data_on_grid_smooth_f
+    a, b = np.log(np.abs(fftshift(a))), np.log(np.abs(fftshift(b)))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex=True, sharey=True)
+    ax1.imshow(a.T, origin="lower", interpolation="nearest")
+    ax2.imshow(b.T, origin="lower", interpolation="nearest")
+    ax3.imshow((a-b).T, origin="lower", interpolation="nearest")
+    plt.show()
+
+
+img_gaussian_filter = gaussian_filter(
+    image, sigma, truncate=truncate, mode=mode)  # (d c b a | a b c d | d c b a)
+fft_gaussian_filter = fft2(img_gaussian_filter)
 
 
 plt.figure()
@@ -57,7 +115,7 @@ plt.title('img_reconstructed_s')
 plt.axis('off')
 plt.subplot(122)
 plt.imshow(np.log(np.abs(fftshift(img_reconstructed_f))), cmap='gray',
-           vmin=-3, vmax=3, interpolation="nearest")
+           interpolation="nearest")
 plt.title('img_reconstructed_f')
 plt.axis('off')
 plt.show()
@@ -67,12 +125,12 @@ print()
 print(image_padded.shape)
 print(kernel_padded.shape)
 print(img_s.shape)
-print(img_gaussian_filter.shape)
+# print(img_gaussian_filter.shape)
 print()
 print(fft_original.shape)
 print(fft_kernel.shape)
 print(img_f.shape)
-print(fft_gaussian_filter.shape)
+# print(fft_gaussian_filter.shape)
 
 plt.figure()
 
