@@ -8,7 +8,8 @@ class TestDataImport(TestCase):
                         "data/damBreak_0010_0010_1_0.vtk")
 
     def test_get_data(self):
-        points, triangles, point_data_dict = get_data(self.file)
+        points, triangles, point_data_dict, cell_data_dict = get_data(
+            self.file)
         assert points.shape == (9281, 3), "expected 9281 points in test file"
         assert triangles.shape == (18144, 3), "expected 18144 triangles"
         for key in ['p_rgh', 'alpha.water', 'U']:
