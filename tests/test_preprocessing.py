@@ -4,8 +4,8 @@ from datetime import datetime
 from smooth_POD_ROM.pre_processing import (on_regular_grid, get_centers,
                                            _gauss_2d, add_padding,
                                            remove_padding, to_frequency,
-                                           to_space)
-from scipy.ndimage import gaussian_filter
+                                           to_space, convolve_f, gaussian_f)
+from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from scipy.signal import wiener, convolve2d
 from skimage import restoration
 from skimage.restoration import richardson_lucy
@@ -47,14 +47,14 @@ class TestDataImport(TestCase):
 
     def test_gaussian_convolution(self):
         sigma = 4
-        truncate = 2
+        truncate = 3
         x, y = np.linspace(0, 1, 101)[:, None], np.linspace(0, 1, 51)[None]
         data = np.sin(x) * np.cos(y)  # data_on_grid
         data[data < .5] = 0
         data[data > .5] = 1
 
         psk = _gauss_2d(sigma, truncate=truncate)
-        kernel_size = int(4 * sigma) + 1
+        kernel_size = int(2*truncate * sigma) + 1
         kernel1D = cv2.getGaussianKernel(kernel_size, sigma)
         kernel = np.outer(kernel1D, kernel1D)
         assert np.allclose(psk, kernel), "kernel not the same"
@@ -88,16 +88,16 @@ class TestDataImport(TestCase):
             data_smooth, data_smooth2), "convolve2d smoothing not the same"
         assert np.allclose(
             data_smooth, data_smooth3), "convolution in frequency domain not the same"
-        if False:
-            fig, ((ax1, ax2, ax3), (ax12, ax22, ax32)) = plt.subplots(
-                2, 3, sharex=True, sharey=True)
-            ax1.imshow(data_smooth)
-            ax2.imshow(data_smooth2)
-            ax3.imshow(data_smooth3)
-            ax12.imshow(data_smooth-data_smooth)
-            ax22.imshow(data_smooth2-data_smooth)
-            ax32.imshow(data_smooth3-data_smooth)
-            plt.show()
+        # if False:
+        #     fig, ((ax1, ax2, ax3), (ax12, ax22, ax32)) = plt.subplots(
+        #         2, 3, sharex=True, sharey=True)
+        #     ax1.imshow(data_smooth)
+        #     ax2.imshow(data_smooth2)
+        #     ax3.imshow(data_smooth3)
+        #     ax12.imshow(data_smooth-data_smooth)
+        #     ax22.imshow(data_smooth2-data_smooth)
+        #     ax32.imshow(data_smooth3-data_smooth)
+        #     plt.show()
 
     def test_rld(self):
         # richardson lucy deconvolution
@@ -133,6 +133,21 @@ class TestDataImport(TestCase):
         # plt.figure()
         # plt.plot(np.arange(50)+1, error, "b.")
         # plt.show()
+
+    def test_convolve_f(self):
+        sigma = 0.05
+        x = np.linspace(0, 1, 100)
+        dx = x[1]
+        y = np.zeros_like(x)
+        y[40:60] = 1
+        kernel_f = gaussian_f(x, sigma)
+        y_smooth = convolve_f(y, kernel_f)
+        y_smooth2 = gaussian_filter1d(
+            y, sigma/dx, mode="wrap", cval=0, truncate=20)
+        assert np.allclose(y_smooth, y_smooth2)
+        # plt.plot(y)
+        # plt.plot(y_smooth)
+        # plt.plot(y_smooth2)
 
 
 if __name__ == "__main__":
