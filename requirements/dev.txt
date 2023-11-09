@@ -1,6 +1,6 @@
 -r common.txt
-flake8==3.9.2
+flake8
 tox
 pytest
 pytest-cov
-cv2
+opencv-python
