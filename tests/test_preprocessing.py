@@ -4,7 +4,8 @@ from datetime import datetime
 from smooth_POD_ROM.pre_processing import (on_regular_grid, get_centers,
                                            _gauss_2d, add_padding,
                                            remove_padding, to_frequency,
-                                           to_space, convolve_f, gaussian_f)
+                                           to_space, convolve_f, gaussian,
+                                           gaussian_f, convolve_f2D)
 from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from scipy.signal import convolve2d
 #from skimage import restoration
@@ -59,14 +60,18 @@ class TestDataImport(TestCase):
         kernel = np.outer(kernel1D, kernel1D)
         assert np.allclose(psk, kernel), "kernel not the same"
 
+        psf_x_f = gaussian_f(x, sigma*(x[1]-x[0]))
+        psf_y_f = gaussian_f(y[0], sigma*(y[0, 1]-y[0, 0]))
+        psf_f2D = np.outer(psf_x_f, psf_y_f)
+        # psf2 = cv2.getGaussianKernel(len(psf), sigma)
+        # plt.plot(fftshift(psf))
+        # plt.plot(psf2)
+        # assert np.allclose(psk, kernel), "kernel not the same"
+
         t1 = datetime.now()
-
         data_smooth = gaussian_filter(data, sigma=sigma, truncate=truncate)
-
         t2 = datetime.now()
-
         data_smooth2 = convolve2d(data, psk, boundary='symm', mode='same')
-
         t3 = datetime.now()
 
         kernel_padded = add_padding(kernel, data.shape, mode="constant")
@@ -79,8 +84,9 @@ class TestDataImport(TestCase):
         image_smooth = to_space(image_smooth_f)
 
         data_smooth3 = remove_padding(image_smooth, data.shape)
-
         t4 = datetime.now()
+        # data_smooth4 = convolve_f2D(data, psf_f2D)
+        # t5 = datetime.now()
         print((t2-t1).total_seconds())
         print((t3-t2).total_seconds())
         print((t4-t3).total_seconds())

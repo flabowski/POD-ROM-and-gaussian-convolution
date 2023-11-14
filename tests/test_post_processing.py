@@ -6,17 +6,32 @@ Created on Thu Nov  9 11:26:32 2023
 """
 from unittest import TestCase, main
 import numpy as np
+from smooth_POD_ROM.post_processing import neares_neighbour
 from datetime import datetime
 from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from scipy.signal import convolve2d
-#from skimage import restoration
-# from skimage.restoration import richardson_lucy
-# import tvtk
-import cv2
 import matplotlib.pyplot as plt
 
 
 class TestDataImport(TestCase):
+    def test_nn2D(self):
+        p1 = [.1, .2, .3]
+        p2 = [10., 20.]
+        P1, P2 = np.meshgrid(p1, p2)
+        pts = np.c_[P1.ravel(), P2.ravel()]
+        x = np.array([[.1,   10.]])
+        d = neares_neighbour(x, pts)
+        assert d == 0.0, "1 point as row failed"
+        x = np.array([.1,   10.])
+        d = neares_neighbour(x, pts)
+        assert d == 0.0, "1 point flattened failed"
+        x = np.array([.15,   15.])
+        d = neares_neighbour(x, pts)
+        assert (d - 5.00025) < 1e-6, "1 point distance miscalculated"
+        x = np.array([[.1,   10],
+                      [.1,   10.]])
+        d = neares_neighbour(x[:, None, :], pts)
+        assert np.allclose(d, np.array([0., 0.])), "several points failed"
 
     def test_rld(self):
         # richardson lucy deconvolution

@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.interpolate import griddata
 from scipy.fft import fft, ifft, fft2, ifft2, fftshift, ifftshift
+from scipy.ndimage import gaussian_filter
 
 
 def get_centers(points, triangles):
@@ -67,17 +68,18 @@ def convolve_f(y, g_f):
     y_f = fft(y)
     y_f_smooth = y_f*g_f
     y_smooth = ifft(y_f_smooth)
-    return y_smooth.real
+    return np.abs(y_smooth)
 
 
 def convolve_f2D(y, g_f):
     y_f = fft2(y)
     y_f_smooth = y_f*g_f
     y_smooth = ifft2(y_f_smooth)
-    return y_smooth.real
+    return np.abs(y_smooth)
 
 
-def smoothen(data_on_grid, psf):
+def smoothen_(data_on_grid, psf):
+    # old. 1 snapshot + padding
     psf_p = add_padding(psf, data_on_grid.shape)
     psf_f = to_frequency(psf_p, shift=True)
     data_on_grid_p = add_padding(data_on_grid, psf.shape, mode="reflect")
@@ -85,6 +87,18 @@ def smoothen(data_on_grid, psf):
     data_on_grid_smooth_f = data_on_grid_f * psf_f
     data_on_grid_s = to_space(data_on_grid_smooth_f)
     return data_on_grid_s
+
+
+def smoothen(X, sigma, shape, truncate=12):
+    # sigma defined in terms of nodes not x!
+    # consider passing sigma/dx to this function
+    X_s = np.empty_like(X)
+    for j in range(X.shape[1]):
+        ss2D = X[:, j].reshape(shape)
+        # add padding?
+        X_s[:, j] = gaussian_filter(
+            ss2D, sigma=sigma, truncate=truncate).ravel()
+    return X_s
 
 
 def _gauss_2d(sigma, truncate=4, size=False):
@@ -115,14 +129,14 @@ def _gauss_2d(sigma, truncate=4, size=False):
 
 
 def gaussian(x, sigma, shift=True):
-    m = len(x)
+    dx = x[1]-x[0]
     if shift:
         x_kernel = fftshift(x)
         offset = x_kernel[0]
     else:
         x_kernel = x
         offset = np.min(np.abs(x))  # or 0?
-    A = 1/(m*sigma*(2*np.pi)**.5)
+    A = dx/(sigma*(2*np.pi)**.5)
     return A * np.exp(-(x_kernel-offset)**2 / (2 * sigma**2))
 
 
@@ -134,22 +148,3 @@ def gaussian_f(x, sigma):
     omega = 2*np.pi*f
     g_f = np.exp(-omega**2*sigma**2/2)
     return g_f
-
-
-def remove_wall(data, X, Y):
-    data = data.copy()
-    # [2, 0, 0],
-    # [2, 0.32876, 0],
-    # [2.16438, 0.32876, 0],
-    # [2.16438, 0, 0],
-    is_wall = (0.292 <= X) & (X <= 0.316) & (Y <= 0.048)
-    # data[47:54, 0:16] = .5
-    data[is_wall] = -1
-    return data
-
-
-def threshold(data):
-    data = data.copy()
-    data[data < 0.5] = 0
-    data[data >= 0.5] = 1
-    return data
