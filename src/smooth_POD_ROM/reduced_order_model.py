@@ -15,6 +15,17 @@ def train_ROM(mu, X, rank):
     return rom
 
 
-def L2_eror(X, X_truth):
+def L2_error(X, X_truth):
     L2 = np.mean((X-X_truth)**2, axis=0)**.5
     return L2
+
+
+def pulse(x, mu, w=0.075+1e-6):
+    y = np.zeros_like(x, dtype=np.float64)
+    y[(0-1e-6 < (x-mu)) & ((x-mu) < w)] = 1.0
+    return y
+
+
+def delta_n_width(S, a, b):
+    delta_n = (np.cumsum(S[::-1]**2)[::-1]/a/b)**.5
+    return delta_n

@@ -75,7 +75,7 @@ def convolve_f2D(y, g_f):
     y_f = fft2(y)
     y_f_smooth = y_f*g_f
     y_smooth = ifft2(y_f_smooth)
-    return np.abs(y_smooth)
+    return np.abs(y_smooth)  # y_smooth.real
 
 
 def smoothen_(data_on_grid, psf):
@@ -89,7 +89,7 @@ def smoothen_(data_on_grid, psf):
     return data_on_grid_s
 
 
-def smoothen(X, sigma, shape, truncate=12):
+def smoothen(X, sigma, shape, truncate=8, mode="wrap"):
     # sigma defined in terms of nodes not x!
     # consider passing sigma/dx to this function
     X_s = np.empty_like(X)
@@ -97,7 +97,7 @@ def smoothen(X, sigma, shape, truncate=12):
         ss2D = X[:, j].reshape(shape)
         # add padding?
         X_s[:, j] = gaussian_filter(
-            ss2D, sigma=sigma, truncate=truncate).ravel()
+            ss2D, sigma=sigma, truncate=truncate, mode=mode).ravel()
     return X_s
 
 
