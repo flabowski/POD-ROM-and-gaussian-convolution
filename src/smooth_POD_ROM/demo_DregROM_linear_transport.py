@@ -73,7 +73,7 @@ def get_datasets(x, g, mu_train, mu_test, mu_val, sigma, dx):
 def brute_force_hyperparams(x, mu_train, mu_test, X_train, X_test,
                             shape, rank, dx, clip, num_iter1, num_iter2):
     standard_rom = train_ROM(mu_train, X_train, rank=rank)
-    X_test_ROM = standard_rom.predict(mu_test).T
+    X_test_ROM = standard_rom.predict(mu_test).snapshots_matrix.T
     n_test = X_test.shape[1]
     sgms = np.linspace(0, 0.1, 21)
     c_all = np.linspace(0, 10, 21)
@@ -85,7 +85,7 @@ def brute_force_hyperparams(x, mu_train, mu_test, X_train, X_test,
         print(sigma_s)
         X_train_s = smoothen(X_train, sigma_s/dx, shape)
         smooth_rom = train_ROM(mu_train, X_train_s, rank=rank)
-        X_test_sROM = smooth_rom.predict(mu_test).T
+        X_test_sROM = smooth_rom.predict(mu_test).snapshots_matrix.T
         esROM[:, i] = L2_error(X_test_sROM, X_test)
         for j, c in enumerate(c_all):
             # de smoothing
@@ -128,8 +128,8 @@ def optimize_hyperparameters_single(x, mu_train, mu_test, X_train, X_test,
     x0 = np.array([sigma_opt, 1.0])
     counter = np.array([0])
 
-    def zf(params): return zielfunktion(params, x, mu_train, X_train, mu_test[5, None],
-                                        X_test[:, 5, None], rank, shape, num_iter2, clip=clip,
+    def zf(params): return zielfunktion(params, x, mu_train, X_train, mu_test,
+                                        X_test, rank, shape, num_iter2, clip=clip,
                                         counter=counter)[0]
     print("sigma, c, iteration count, mean_ROM, mean_sROM, mean_sROMs, improvement")
     res = minimize(zf, x0, method='SLSQP',
@@ -148,8 +148,8 @@ def convergence_RL(x, cases, mu_train, mu_test, X_train, X_test, shape, clip, ra
     dx = x[1]-x[0]
     i_ss = 5
 
-    smooth_rom = train_ROM(mu_train, X_train, rank=rank)
-    ss_test_ROM = smooth_rom.predict(mu_test[i_ss, None]).T
+    standard_rom = train_ROM(mu_train, X_train, rank=rank)
+    ss_test_ROM = standard_rom.predict(mu_test[i_ss, None]).snapshots_matrix.T
     e_ROM = L2_error(ss_test_ROM, X_test[:, i_ss, None])
 
     # cases = ((0.03859704, 0.05250653, "$\sigma_D$ optimal for all $\mu$"),  # optimal for all mu
@@ -162,7 +162,8 @@ def convergence_RL(x, cases, mu_train, mu_test, X_train, X_test, shape, clip, ra
         print(sigma_S, sigma_D, end=" ")
         X_train_s = smoothen(X_train, sigma_S/dx, shape)
         smooth_rom = train_ROM(mu_train, X_train_s, rank=rank)
-        ss_test_sROM = smooth_rom.predict(mu_test[i_ss, None]).T
+        ss_test_sROM = smooth_rom.predict(
+            mu_test[i_ss, None]).snapshots_matrix.T
         ss_test_sROMs, sss = richardson_lucy(x, ss_test_sROM.reshape(shape),
                                              sigma_D, num_iter, truth=None,
                                              damping=2, clip=clip,
@@ -250,18 +251,37 @@ def estimate_dN(g, x, mu_train, mu_test, X_train, X_test, shape,
 
 
 if __name__ == "__main__":
-    pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/rectangular_pulse/"
-    pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/rect_pulse_sin/"
-    pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/saw_tooth/"
-    pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/triangle/"
+    j = 0
+    for name, g in zip(["rectangular_pulse", "rect_pulse_sin", "saw_tooth", "triangle"],
+                       [rectangular_pulse, rect_pulse_sin, saw_tooth, triangle]):
+        pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/"+name+"/"
+        print(name)
+        dN_ROM = np.load(pth + "dN_ROM.npy")
+        dN_sROM = np.load(pth + "dN_sROM.npy")
+        dN_sROMs = np.load(pth + "dN_sROMs.npy")
+        dN_sROMs2 = np.load(pth + "dN_sROMs2.npy")
+        dN_sig = np.load(pth + "dN_sig.npy")
+        dN_c = np.load(pth + "dN_c.npy")
+        imp1 = dN_sROMs2/dN_ROM
+        imp2 = dN_sROMs/dN_ROM
+        # print(1-np.mean(imp1), 1-np.mean(imp2))
+        print("average improvement across all ranks after {:.0f}? iterations: {:.2f}".format(
+            50, (1-np.mean(imp1))*100))
+        print("average improvement across all ranks after {:.0f}? iterations: {:.2f}".format(
+            250, (1-np.mean(imp2))*100))
+    # asd
+    # pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/rectangular_pulse/"
+    # pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/rect_pulse_sin/"
+    # pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/saw_tooth/"
+    # pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/triangle/"
     # TODO: adjust iteration number in figure
-    g = rect_pulse_sin
+    # g = rectangular_pulse
     n_x = 1000
-    n_train = 20
+    n_train = 10
     n_test = 10
     num_iter1 = 50
     num_iter2 = 250
-    num_iter3 = 1000
+    # num_iter3 = 1000
     num_iter4 = 2500
 
     sigma, c = 0.5, 2  # 10 snapshots
@@ -279,116 +299,137 @@ if __name__ == "__main__":
     dx = 1/n_x
     shape = (n_x,)
     clip = True
+    for name, g in zip(["rectangular_pulse", "rect_pulse_sin", "saw_tooth", "triangle"],
+                       [rectangular_pulse, rect_pulse_sin, saw_tooth, triangle]):
+        pth = "//files.ad.ife.no/MatPro_files/Florian/results/sPODROM/Figures_paper/"+name+"/"
+        print(name)
+        print("define parameters")
+        x = np.linspace(0, 1, n_x, endpoint=False)
+        mu_train = np.linspace([0.0], [1.0], n_train, endpoint=False)
+        mu_test = np.linspace(mu_train[1], mu_train[2], n_test, endpoint=False)
+        mu_val = x.copy()
+        interpolatable = (mu_train[0] < mu_val) & (mu_val < mu_train[-1])
+        mu_val = mu_val[interpolatable][:, None]
 
-    print("define parameters")
-    x = np.linspace(0, 1, n_x, endpoint=False)
-    mu_train = np.linspace([0.0], [1.0], n_train, endpoint=False)
-    mu_test = np.linspace(mu_train[1], mu_train[2], n_test, endpoint=False)
-    mu_val = x.copy()
-    interpolatable = (mu_train[0] < mu_val) & (mu_val < mu_train[-1])
-    mu_val = mu_val[interpolatable][:, None]
+        print("generate data")
+        data = get_datasets(x, g, mu_train, mu_test, mu_val, sigma, dx)
+        X_train, X_test, X_val = data
 
-    print("generate data")
-    data = get_datasets(x, g, mu_train, mu_test, mu_val, sigma, dx)
-    X_train, X_test, X_val = data
+        print("parameter optimization for a given rank")
+        # if the number of iterations is too low in the optimization,
+        # we get bad results when testing with much higher iteration numbers
+        sigma, c = optimize_hyperparameters(
+            x, mu_train, mu_test, X_train, X_test, shape, num_iter2, clip, rank)
+        X_train_s = smoothen(X_train, sigma/dx, x.shape, truncate=12)
+        X_test_s = smoothen(X_test, sigma/dx, x.shape, truncate=12)
+        X_val_s = smoothen(X_val, sigma/dx, x.shape, truncate=12)
+        Fig3(x, mu_train, X_train, X_train_s)
+        plt.savefig(pth+"Fig3.pdf")
 
-    print("parameter optimization for a given rank")
-    # if the number of iterations is too low in the optimization,
-    # we get bad results when testing with much higher iteration numbers
-    sigma, c = optimize_hyperparameters(
-        x, mu_train, mu_test, X_train, X_test, shape, num_iter2, clip, rank)
-    X_train_s = smoothen(X_train, sigma/dx, x.shape, truncate=12)
-    X_test_s = smoothen(X_test, sigma/dx, x.shape, truncate=12)
-    X_val_s = smoothen(X_val, sigma/dx, x.shape, truncate=12)
-    Fig3(x, mu_train, X_train, X_train_s)
-    plt.savefig(pth+"Fig3.pdf")
+        print("build ROM and predict")
+        standard_rom = train_ROM(mu_train, X_train, rank=rank)
+        smooth_rom = train_ROM(mu_train, X_train_s, rank=rank)
+        X_test_ROM = standard_rom.predict(mu_test).snapshots_matrix.T
+        X_val_ROM = standard_rom.predict(mu_val).snapshots_matrix.T
+        X_test_sROM = smooth_rom.predict(mu_test).snapshots_matrix.T
+        X_val_sROM = smooth_rom.predict(mu_val).snapshots_matrix.T
+        Fig4(x, 5, mu_train, mu_test, X_train,
+             X_train_s, X_test, X_test_ROM, X_test_sROM)
+        plt.savefig(pth+"Fig4.pdf")
 
-    print("build ROM and predict")
-    standard_rom = train_ROM(mu_train, X_train, rank=rank)
-    smooth_rom = train_ROM(mu_train, X_train_s, rank=rank)
-    X_test_ROM = standard_rom.predict(mu_test).T
-    X_val_ROM = standard_rom.predict(mu_val).T
-    X_test_sROM = smooth_rom.predict(mu_test).T
-    X_val_sROM = smooth_rom.predict(mu_val).T
-    Fig4(x, 5, mu_train, mu_test, X_train,
-         X_train_s, X_test, X_test_ROM, X_test_sROM)
-    plt.savefig(pth+"Fig4.pdf")
+        print("desmoothen the predictions")
+        X_test_sROMs2 = post_process(x, X_test_sROM, sigma, c, mu_test, mu_train,
+                                     num_iter2, shape, clip=clip, progress=False)
+        Fig5(x, X_test, X_test_s, X_test_ROM, X_test_sROM, X_test_sROMs2)
+        plt.savefig(pth+"Fig5.pdf")
+        e_singleSD = np.mean((X_test[:, 5]-X_test_sROMs2[:, 5])**2)**.5
+        e_single = np.mean((X_test[:, 5]-X_test_ROM[:, 5])**2)**.5
+        print("improvement single case ($\mu=0.15$, rank 10)",
+              (1-e_singleSD/e_single)*100)
 
-    print("desmoothen the predictions")
-    X_test_sROMs2 = post_process(x, X_test_sROM, sigma, c, mu_test, mu_train,
-                                 num_iter2, shape, clip=clip, progress=False)
-    Fig5(x, X_test, X_test_s, X_test_ROM, X_test_sROM, X_test_sROMs2)
-    plt.savefig(pth+"Fig5.pdf")
+        print("model performance validation")
+        X_val_sROMs = post_process(x, X_val_sROM, sigma, c, mu_val, mu_train,
+                                   num_iter1, shape, clip=clip, progress=False)
+        X_val_sROMs2 = post_process(x, X_val_sROM, sigma, c, mu_val, mu_train,
+                                    num_iter2, shape, clip=clip, progress=True)
+        eROM = L2_error(X_val_ROM, X_val)
+        esROM = L2_error(X_val_sROM, X_val)
+        esROMs = L2_error(X_val_sROMs, X_val)
+        esROMs2 = L2_error(X_val_sROMs2, X_val)
+        imp1 = 100-np.mean(esROMs)/np.mean(eROM)*100
+        imp2 = 100-np.mean(esROMs2)/np.mean(eROM)*100
+        print("average improvement ({:.0f} iterations): {:.2f}".format(
+            num_iter1, imp1))
+        print("average improvement ({:.0f} iterations): {:.2f}".format(
+            num_iter2, imp2))
+        Fig6(mu_val, eROM, esROM, esROMs, esROMs2)
+        plt.savefig(pth+"Fig6.pdf")
 
-    print("model performance validation")
-    X_val_sROMs = post_process(x, X_val_sROM, sigma, c, mu_val, mu_train,
-                               num_iter1, shape, clip=clip, progress=False)
-    X_val_sROMs2 = post_process(x, X_val_sROM, sigma, c, mu_val, mu_train,
-                                num_iter2, shape, clip=clip, progress=True)
-    eROM = L2_error(X_val_ROM, X_val)
-    esROM = L2_error(X_val_sROM, X_val)
-    esROMs = L2_error(X_val_sROMs, X_val)
-    esROMs2 = L2_error(X_val_sROMs2, X_val)
-    imp1 = 100-np.mean(esROMs)/np.mean(eROM)*100
-    imp2 = 100-np.mean(esROMs2)/np.mean(eROM)*100
-    print("average improvement ({:.0f} iterations): {:.2f}".format(
-        num_iter1, imp1))
-    print("average improvement ({:.0f} iterations): {:.2f}".format(
-        num_iter2, imp2))
-    Fig6(mu_val, eROM, esROM, esROMs, esROMs2)
-    plt.savefig(pth+"Fig6.pdf")
+        f = open(pth+"results.txt", "x")  # w for overwriting, x for new
+        f.write("improvement single case ($\mu=0.15$, rank 10): {:.6f}".format(
+            (1-e_singleSD/e_single)*100))
+        f.write("average improvement ({:.0f} iterations): {:.2f}".format(
+            num_iter2, imp2))
+        f.close()
 
-    # print("investigate improvement vs choice of parameter (brute force, SLOW!)")
-    # res = brute_force_hyperparams(x, mu_train, mu_test, X_train, X_test, shape,
-    #                               rank, dx, clip, num_iter1, num_iter2)
-    # eROM_mat, esROM_mat, esROMs_mat, esROMs2_mat, c_all, sgms, c_all = res
-    # Fig7(eROM_mat, esROM_mat, esROMs_mat, c_all, sgms)
-    # plt.savefig(pth+"Fig7a.pdf")
-    # Fig7(eROM_mat, esROM_mat, esROMs2_mat, c_all, sgms)
-    # plt.savefig(pth+"Fig7b.pdf")
+        # print("investigate improvement vs choice of parameter (brute force, SLOW!)")
+        # res = brute_force_hyperparams(x, mu_train, mu_test, X_train, X_test, shape,
+        #                               rank, dx, clip, num_iter1, num_iter2)
+        # eROM_mat, esROM_mat, esROMs_mat, esROMs2_mat, c_all, sgms, c_all = res
+        # Fig7(eROM_mat, esROM_mat, esROMs_mat, c_all, sgms)
+        # plt.savefig(pth+"Fig7a.pdf")
+        # Fig7(eROM_mat, esROM_mat, esROMs2_mat, c_all, sgms)
+        # plt.savefig(pth+"Fig7b.pdf")
 
-    print("optimize for SINGLE snapshot")
-    i_ss = 5
-    sigma_S_single, c_opt_single = optimize_hyperparameters_single(
-        x, mu_train, mu_test, X_train, X_test, shape, num_iter4, clip, rank)
-    sigma_D = get_sigma(sigma, mu_test[i_ss][None, ...], mu_train, c=c)
-    sigma_D_single = get_sigma(
-        sigma_S_single, mu_test[i_ss][None, ...], mu_train, c=c_opt_single)
+        # print("optimize for SINGLE snapshot and investigate convergence of RL")
+        # i_ss = 5
+        # sigma_S_single, c_opt_single = optimize_hyperparameters_single(
+        #     x, mu_train, mu_test[5, None], X_train, X_test[:, 5, None], shape, num_iter4, clip, rank)
+        # sigma_D = get_sigma(sigma, mu_test[i_ss][None, ...], mu_train, c=c)
+        # sigma_D_single = get_sigma(
+        #     sigma_S_single, mu_test[i_ss][None, ...], mu_train, c=c_opt_single)
 
-    # c_all = 0.7207542340034365  # 1000 iterations,
-    # c_single = 0.6206818334161559  # 1000 iterations,
-    # cases = ((0.03859704, 0.05250653, "$\sigma_D$ optimal for all $\mu$"),  # optimal for all mu
-    #           (0.03859704, 0.03859704, "$\sigma_D=\sigma_S$"),  # same
-    #           (0.03859704, 2*0.03859704, "$\sigma_D=2*\sigma_S$"),  # 2*Sigma_D
-    #           (0.03535673, 0.04632937, "$\sigma_D$ optimal for snapshot"))  # optimal for snapshot
+        #         # c_all = 0.7207542340034365  # 1000 iterations,
+        #         # c_single = 0.6206818334161559  # 1000 iterations,
+        #         # cases = ((0.03859704, 0.05250653, "$\sigma_D$ optimal for all $\mu$"),  # optimal for all mu
+        #         #           (0.03859704, 0.03859704, "$\sigma_D=\sigma_S$"),  # same
+        #         #           (0.03859704, 2*0.03859704, "$\sigma_D=2*\sigma_S$"),  # 2*Sigma_D
+        #         #           (0.03535673, 0.04632937, "$\sigma_D$ optimal for snapshot"))  # optimal for snapshot
 
-    cases = ((sigma, sigma_D, "$\sigma_D$ optimal for all $\mu$"),  # optimal for all mu
-             (sigma, sigma, "$\sigma_D=\sigma_S$"),  # same
-             (sigma, 2*sigma, "$\sigma_D=2*\sigma_S$"),  # 2*Sigma_D
-             (sigma_S_single, sigma_D_single, "$\sigma_D$ optimal for snapshot"))
+        # cases = ((sigma, sigma_D, "$\sigma_D$ optimal for all $\mu$"),  # optimal for all mu
+        #          (sigma, sigma, "$\sigma_D=\sigma_S$"),  # same
+        #          (sigma, 2*sigma, "$\sigma_D=2*\sigma_S$"),  # 2*Sigma_D
+        #          (sigma_S_single, sigma_D_single, "$\sigma_D$ optimal for snapshot"))
 
-    print("investigate convergence of RL")
-    improvements = convergence_RL(x, cases, mu_train, mu_test, X_train,
-                                  X_test, shape, clip, rank)
-    Fig11(cases, improvements)
-    plt.savefig(pth+"Fig11.pdf")
+        # improvements = convergence_RL(x, cases, mu_train, mu_test, X_train,
+        #                               X_test, shape, clip, rank)
+        # Fig11(cases, improvements)
+        # plt.savefig(pth+"Fig11.pdf")
 
-    NN, dN_ROM, dN_sROM, dN_sROMs, dN_sROMs2, dN_sig, dN_c = estimate_dN(
-        g, x, mu_train, mu_test, X_train, X_test, shape,
-        num_iter1, num_iter2, clip, rank)
-    Fig8(NN, dN_ROM, dN_sROMs, dN_sROMs2)
-    plt.savefig(pth+"Fig8.pdf")
+        # print("error decay")
+        # NN, dN_ROM, dN_sROM, dN_sROMs, dN_sROMs2, dN_sig, dN_c = estimate_dN(
+        #     g, x, mu_train, mu_test, X_train, X_test, shape,
+        #     num_iter1, num_iter2, clip, rank)
+        # Fig8(NN, dN_ROM, dN_sROMs, dN_sROMs2)
+        # plt.savefig(pth+"Fig8.pdf")
 
-    np.save(pth+"dN_ROM.npy", dN_ROM)
-    np.save(pth+"dN_sROM.npy", dN_sROM)
-    np.save(pth+"dN_sROMs.npy", dN_sROMs)
-    np.save(pth+"dN_sROMs2.npy", dN_sROMs2)
-    np.save(pth+"dN_sig.npy", dN_sig)
-    np.save(pth+"dN_c.npy", dN_c)
+        # imp1 = dN_sROMs2/dN_ROM
+        # imp2 = dN_sROMs/dN_ROM
+        # print("average improvement across all ranks after {:.0f} iterations: {:.2f}".format(
+        #     num_iter1, (1-np.mean(imp1))*100))
+        # print("average improvement across all ranks after {:.0f} iterations: {:.2f}".format(
+        #     num_iter2, (1-np.mean(imp2))*100))
+        # # , 1-np.mean(imp2))
 
-    plt.figure()
-    plt.scatter(NN, dN_sig, c=dN_sROMs/dN_ROM)
-    plt.figure()
-    plt.scatter(NN, dN_c, c=dN_sROMs/dN_ROM)
-    # TODO: Fig. 8 (error vs rank)
-    # TODO: Fig. 9 (sigma vs rank)
+        # np.save(pth+"NN.npy", NN)
+        # np.save(pth+"dN_ROM.npy", dN_ROM)
+        # np.save(pth+"dN_sROM.npy", dN_sROM)
+        # np.save(pth+"dN_sROMs.npy", dN_sROMs)
+        # np.save(pth+"dN_sROMs2.npy", dN_sROMs2)
+        # np.save(pth+"dN_sig.npy", dN_sig)
+        # np.save(pth+"dN_c.npy", dN_c)
+
+        # plt.figure()
+        # plt.scatter(NN, dN_sig, c=dN_sROMs/dN_ROM)
+        # plt.figure()
+        # plt.scatter(NN, dN_c, c=dN_sROMs/dN_ROM)

@@ -18,19 +18,22 @@ def train_ROM(mu, X, rank):
 
 
 def zielfunktion(params, x, mu_train, X_train, mu_test, X_test,
-                 rank, shape, num_iter, clip=True):
+                 rank, shape, num_iter, clip=True,
+                 counter=np.array([0]), maxiter=150):
+    if counter[0] > maxiter:
+        counter[0] += 1
+        return 0., 0., 0., 0.
     dx = x[1] - x[0]
     sigma, c = params[0], params[1]
-    print("{:.8f}, {:.8f},".format(sigma, c), end=" ")
 
     standard_rom = train_ROM(mu_train, X_train, rank=rank)
-    X_test_ROM = standard_rom.predict(mu_test).T
+    X_test_ROM = standard_rom.predict(mu_test).snapshots_matrix.T
     e_ROM = L2_error(X_test_ROM, X_test)
     mean_ROM = np.mean(e_ROM)
 
     X_train_s = smoothen(X_train, sigma/dx, shape)
     smooth_rom = train_ROM(mu_train, X_train_s, rank=rank)
-    X_test_sROM = smooth_rom.predict(mu_test).T
+    X_test_sROM = smooth_rom.predict(mu_test).snapshots_matrix.T
     e_sROM = L2_error(X_test_sROM, X_test)
     mean_sROM = np.mean(e_sROM)
     X_test_sROMs = post_process(x, X_test_sROM, sigma, c, mu_test, mu_train,
@@ -38,8 +41,10 @@ def zielfunktion(params, x, mu_train, X_train, mu_test, X_test,
     e_sROMs = L2_error(X_test_sROMs, X_test)
     mean_sROMs = np.mean(e_sROMs)
     improvement = 100*mean_sROMs/mean_ROM-100
-    print("{:.8f}, {:.8f}, {:.8f}, {:.4f} %".format(
-        mean_ROM, mean_sROM, mean_sROMs, improvement))
+    print("{:.8f}, {:.8f},".format(sigma, c),
+          "{:.0f}, {:.8f}, {:.8f}, {:.8f}, {:.4f} %".format(
+              counter[0], mean_ROM, mean_sROM, mean_sROMs, improvement))
+    counter[0] += 1
     return improvement, X_test_ROM, X_test_sROM, X_test_sROMs
 
 

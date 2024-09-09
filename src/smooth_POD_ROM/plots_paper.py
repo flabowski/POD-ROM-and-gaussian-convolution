@@ -110,19 +110,19 @@ def Fig4(x, i_c, mu_train, mu_test, X_train, X_train_s, X_test, X_test_ROM, X_te
 
 
 def Fig5(x, X_test, X_test_s, X_test_ROM, X_test_sROM, X_test_sROMs):
-    for j in [0, 2, 5, 7]:
+    for j in [5]:  # [0, 2, 5, 7]:
         markevery = 45
         fig, ax = plt.subplots(figsize=(page_width_in/2, page_width_in/3))
         plt.plot(x, X_test[:, j], "k-", ms=4, markevery=(0,
                  markevery), label="$u_{\mu}$")  # : true solution
         # : regularized true solution
-        plt.plot(x, X_test_s[:, j], "k--", ms=4,
-                 markevery=(20, markevery), label="$u_{\mu, S}$")
+        # plt.plot(x, X_test_s[:, j], "k--", ms=4,
+        #          markevery=(20, markevery), label="$u_{\mu, S}$")
         plt.plot(x, X_test_ROM[:, j], "C0-", ms=4, markevery=(10,
                  markevery), label="$u_{\mu, rb}$")  # : standard ROM
         # : regularized ROM
-        plt.plot(x, X_test_sROM[:, j], "C1--", ms=4,
-                 markevery=markevery, label="$u_{\mu, rb, S}$")
+        # plt.plot(x, X_test_sROM[:, j], "C1--", ms=4,
+        #          markevery=markevery, label="$u_{\mu, rb, S}$")
         plt.plot(x, X_test_sROMs[:, j], "C2-", ms=4, markevery=(30,
                  markevery), label="$u_{\mu, rb, DS}$")  # : deconvolved reg. ROM
     #     plt.plot(x, X_test_sROMs2[:, j], "C3|-", ms=4, markevery=markevery, label="$u_{rb, D_{100}}$") # : deconvolved reg. ROM
@@ -130,13 +130,13 @@ def Fig5(x, X_test, X_test_s, X_test_ROM, X_test_sROM, X_test_sROMs):
         ax.set_yticks(np.linspace(0, 2, 21, endpoint=True), minor=True)
 
         e = np.mean((X_test[:, j]-X_test_ROM[:, j])**2)**.5
-        ax.text(0.35, 0.45, "$\|u_{\mu}{-u_{\mu, rb}}\|_{L_2}" +
+        ax.text(0.35, 0.4, "$\|u_{\mu}{-u_{\mu, rb}}\|_{L_2}" +
                 "={:.3f}$".format(e), fontsize=8, va="center")
-        e = np.mean((X_test[:, j]-X_test_sROM[:, j])**2)**.5
-        ax.text(0.35, 0.3, "$\|u_{\mu}{-u_{\mu, rb, S}}\|_{L_2}" +
-                "={:.3f}$".format(e), fontsize=8, va="center")
+        # e = np.mean((X_test[:, j]-X_test_sROM[:, j])**2)**.5
+        # ax.text(0.35, 0.3, "$\|u_{\mu}{-u_{\mu, rb, S}}\|_{L_2}" +
+        #         "={:.3f}$".format(e), fontsize=8, va="center")
         e = np.mean((X_test[:, j]-X_test_sROMs[:, j])**2)**.5
-        ax.text(0.35, 0.15, "$\|u_{\mu}{-u_{\mu, rb, DS}}\|_{L_2}" +
+        ax.text(0.35, 0.25, "$\|u_{\mu}{-u_{\mu, rb, DS}}\|_{L_2}" +
                 "={:.3f}$".format(e), fontsize=8, va="center")
     #     e = np.mean((X_test[:, j]-X_test_sROMs2[:, j])**2)**.5
     #     ax.text(0.35, 0.0, "$\|u_h{-u_{rb,D_{1000}}}\|_{L_2}"+"={:.3f}$".format(e), fontsize=8, va="center")

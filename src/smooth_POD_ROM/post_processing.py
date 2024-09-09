@@ -19,10 +19,11 @@ def get_sigma(sigma, mu, mu_train, c):
 
 
 def richardson_lucy(x, im_blur, sgm, num_iter=50, truth=None, damping=2,
-                    clip=False, mode="wrap"):
+                    clip=False, mode="wrap", monitor_convergence=False):
     if not len(im_blur.shape) == 2:
         warnings.warn("image needs to be 2D")
     dx = x[1]-x[0]
+    # TODO:
     truncate = 8
     if sgm/dx > 800:
         truncate = 1
@@ -38,7 +39,9 @@ def richardson_lucy(x, im_blur, sgm, num_iter=50, truth=None, damping=2,
         truncate = 5
     im_deconv = im_blur.copy()
     eps = 1e-12  # regularization to avoid 0 division
-    for _ in range(num_iter):
+    if monitor_convergence:
+        results = np.empty((im_blur.size, num_iter))
+    for k in range(num_iter):
         #blurred = convolve2d(im_deconv.copy(), psf, boundary='symm', mode='same') + eps
         #blurred = convolve_f2D(im_deconv, psf_f2D) + eps
         blurred = gaussian_filter(
@@ -57,12 +60,17 @@ def richardson_lucy(x, im_blur, sgm, num_iter=50, truth=None, damping=2,
             im_deconv[im_deconv < 0] = 0
             im_deconv[im_deconv > 1] = 1
         if isinstance(truth, np.ndarray):
-            print(_, np.mean((truth-im_deconv.ravel())**2)**.5)
+            print(k, np.mean((truth-im_deconv.ravel())**2)**.5)
+        if monitor_convergence:
+            results[:, k] = im_deconv.ravel()
+    if monitor_convergence:
+        return im_deconv, results
     return im_deconv
 
 
 def post_process(x, data, sigma, c, mu_test, mu_train, num_iter,
                  shape, clip, progress=False):
+    print("pp", sigma, c, num_iter, shape, clip)
     # from datetime import datetime
     deconvolved = np.empty_like(data)
     for j in range(len(mu_test)):
