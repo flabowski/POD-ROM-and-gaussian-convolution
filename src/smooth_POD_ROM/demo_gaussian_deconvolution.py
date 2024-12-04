@@ -57,7 +57,8 @@ img_s = ifft2(fft_original * fft_kernel).real
 
 
 # -----------------------------------------------------------------------------
-img_reconstructed_f = img_f / fft_kernel
+inv_kernel = 1 / fft_kernel
+img_reconstructed_f = img_f / inv_kernel
 img_reconstructed_s = ifft2(img_reconstructed_f).real
 # -----------------------------------------------------------------------------
 img_smooth_f2 = to_frequency(img_s)
@@ -65,6 +66,11 @@ img_deconvolved_f = img_smooth_f2 / fft_kernel
 img_reconstructed_s2 = ifft2(img_deconvolved_f).real
 # -----------------------------------------------------------------------------
 
+inv_kernel_s = ifftshift(ifft2((inv_kernel)).real)
+fig, ax = plt.subplots(1, 1, sharex=True, sharey=True)
+ax.imshow(inv_kernel_s.T, origin="lower", interpolation="nearest")
+plt.show()
+asd
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex=True, sharey=True)
 ax1.imshow(image_padded.T, origin="lower", interpolation="nearest")
 ax2.imshow(img_reconstructed_s.T, origin="lower", interpolation="nearest")
