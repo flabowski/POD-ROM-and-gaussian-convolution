@@ -6,79 +6,108 @@ from scipy.spatial import distance
 
 
 def relative_distance_nearest_neighbour(single_point, points):
-    distances = distance.cdist(points, single_point, 'euclidean').flatten()
+    distances = distance.cdist(points, single_point, "euclidean").flatten()
     distances.sort()
     dim = points.shape[1]
     n = 2**dim  # 1D: 2NN; 2D: 4NN, 3D:8NN
-    return distances[0] / (np.sum(distances[:n])/dim)
+    return distances[0] / (np.sum(distances[:n]) / dim)
 
 
 def get_sigma(sigma, mu, mu_train, c):
     d = relative_distance_nearest_neighbour(mu, mu_train)
-    return sigma*(1 + c * d)
+    return sigma * (1 + c * d)
 
 
-def richardson_lucy(x, im_blur, sgm, num_iter=50, truth=None, damping=2,
-                    clip=False, mode="wrap", monitor_convergence=False):
+def richardson_lucy(
+    x,
+    im_blur,
+    sgm,
+    num_iter=50,
+    damping=2,
+    clip=True,
+    mode="wrap",
+    monitor_convergence=False,
+):
     if not len(im_blur.shape) == 2:
         warnings.warn("image needs to be 2D")
-    dx = x[1]-x[0]
-    # TODO:
+    dx = x[1] - x[0]
+    # TODO: tuncate fixed length
     truncate = 8
-    if sgm/dx > 800:
+    if sgm / dx > 800:
         truncate = 1
-    elif sgm/dx > 400:
+    elif sgm / dx > 400:
         truncate = 2
-    elif sgm/dx > 200:
+    elif sgm / dx > 200:
         truncate = 3
-    elif sgm/dx > 100:
+    elif sgm / dx > 100:
         truncate = 4
-    elif sgm/dx > 50:
+    elif sgm / dx > 50:
         truncate = 5
-    elif sgm/dx > 25:
+    elif sgm / dx > 25:
         truncate = 5
     im_deconv = im_blur.copy()
     eps = 1e-12  # regularization to avoid 0 division
     if monitor_convergence:
-        results = np.empty((im_blur.size, num_iter))
+        deconvolved_per_iter = np.empty((im_blur.size, num_iter))
     for k in range(num_iter):
-        #blurred = convolve2d(im_deconv.copy(), psf, boundary='symm', mode='same') + eps
-        #blurred = convolve_f2D(im_deconv, psf_f2D) + eps
-        blurred = gaussian_filter(
-            im_deconv, sigma=sgm/dx, truncate=truncate, mode=mode)  # + eps
+        # blurred = convolve2d(im_deconv.copy(), psf, boundary='symm', mode='same') + eps
+        # blurred = convolve_f2D(im_deconv, psf_f2D) + eps
+        blurred = gaussian_filter(im_deconv, sigma=sgm / dx, truncate=truncate, mode=mode)  # + eps
         blurred[np.abs(blurred) < eps] = eps
         relative_blur = im_blur / blurred
-        #im_deconv *= convolve2d(relative_blur, psf_mirror, boundary='symm', mode='same')
-        #im_deconv *= convolve_f2D(relative_blur, psf_f2D)
+        # im_deconv *= convolve2d(relative_blur, psf_mirror, boundary='symm', mode='same')
+        # im_deconv *= convolve_f2D(relative_blur, psf_f2D)
         error_estimate = gaussian_filter(
-            relative_blur, sigma=sgm/dx, truncate=truncate, mode=mode)
+            relative_blur, sigma=sgm / dx, truncate=truncate, mode=mode
+        )
         if damping:
-            error_estimate[error_estimate > (1+damping)] = 1+damping
-            error_estimate[error_estimate < (1-damping)] = 1-damping
+            error_estimate[error_estimate > (1 + damping)] = 1 + damping
+            error_estimate[error_estimate < (1 - damping)] = 1 - damping
         im_deconv *= error_estimate
         if clip:
             im_deconv[im_deconv < 0] = 0
             im_deconv[im_deconv > 1] = 1
-        if isinstance(truth, np.ndarray):
-            print(k, np.mean((truth-im_deconv.ravel())**2)**.5)
         if monitor_convergence:
-            results[:, k] = im_deconv.ravel()
+            deconvolved_per_iter[:, k] = im_deconv.ravel()
     if monitor_convergence:
-        return im_deconv, results
+        return deconvolved_per_iter
     return im_deconv
 
 
-def post_process(x, data, sigma, c, mu_test, mu_train, num_iter,
-                 shape, clip, progress=False):
-    print("pp", sigma, c, num_iter, shape, clip)
+def post_process(
+    x,
+    data,
+    sigma,
+    c,
+    mu_test,
+    mu_train,
+    num_iter,
+    shape,
+    clip,
+    progress=False,
+    monitor_convergence=False,
+):
+    print("post_process:", sigma, c, num_iter, shape, clip)
     # from datetime import datetime
-    deconvolved = np.empty_like(data)
+    if monitor_convergence:
+        deconvolved = np.ones((*data.shape, num_iter))
+    else:
+        deconvolved = np.empty_like(data)
     for j in range(len(mu_test)):
         sgm_est = get_sigma(sigma, mu_test[j][None, ...], mu_train, c=c)
         # t1 = datetime.now()
-        deconvolved[:, j] = richardson_lucy(x, data[:, j].reshape(shape),
-                                            sgm_est, num_iter, truth=None,
-                                            damping=2, clip=clip).ravel()
+        deconvolved[:, j] = richardson_lucy(
+            x,
+            data[:, j].reshape(shape),
+            sgm_est,
+            num_iter,
+            # truth=None,
+            damping=2,
+            clip=clip,
+            monitor_convergence=monitor_convergence,
+        ).reshape(
+            deconvolved[:, j].shape
+        )  # n, num_iter
         # print("sgm=", sgm_est*1000, (datetime.now()-t1).total_seconds())
         if progress:
             print(j, end=", ")
@@ -91,50 +120,63 @@ def sharpen(data, s, ns):
     if s == 1:
         return data.ravel()
     elif s == 3:
-        k = np.array([[0, -1, 0],
-                      [-1,  5, -1],
-                      [0, -1, 0]])
+        k = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     elif s == 5:
-        k = np.array([[0, 0, -1, 0, 0],
-                      [0, 0, -1, 0, 0],
-                      [-1, -1,  9, -1, -1],
-                      [0, 0, -1, 0, 0],
-                      [0, 0, -1, 0, 0]])
+        k = np.array(
+            [
+                [0, 0, -1, 0, 0],
+                [0, 0, -1, 0, 0],
+                [-1, -1, 9, -1, -1],
+                [0, 0, -1, 0, 0],
+                [0, 0, -1, 0, 0],
+            ]
+        )
     elif s == 7:
-        k = np.array([[0, 0, 0, -1, 0, 0, 0],
-                      [0, 0, 0, -1, 0, 0, 0],
-                      [0, 0, 0, -1, 0, 0, 0],
-                      [-1, -1, -1,  13, -1, -1, -1],
-                      [0, 0, 0, -1, 0, 0, 0],
-                      [0, 0, 0, -1, 0, 0, 0],
-                      [0, 0, 0, -1, 0, 0, 0]])
+        k = np.array(
+            [
+                [0, 0, 0, -1, 0, 0, 0],
+                [0, 0, 0, -1, 0, 0, 0],
+                [0, 0, 0, -1, 0, 0, 0],
+                [-1, -1, -1, 13, -1, -1, -1],
+                [0, 0, 0, -1, 0, 0, 0],
+                [0, 0, 0, -1, 0, 0, 0],
+                [0, 0, 0, -1, 0, 0, 0],
+            ]
+        )
     elif s == 9:
-        k = np.array([[0, 0, 0, 0, -1, 0, 0, 0, 0],
-                      [0, 0, 0, 0, -1, 0, 0, 0, 0],
-                      [0, 0, 0, 0, -1, 0, 0, 0, 0],
-                      [0, 0, 0, 0, -1, 0, 0, 0, 0],
-                      [-1, -1, -1, -1,  17, -1, -1, -1, -1],
-                      [0, 0, 0, 0, -1, 0, 0, 0, 0],
-                      [0, 0, 0, 0, -1, 0, 0, 0, 0],
-                      [0, 0, 0, 0, -1, 0, 0, 0, 0],
-                      [0, 0, 0, 0, -1, 0, 0, 0, 0]])
+        k = np.array(
+            [
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+                [-1, -1, -1, -1, 17, -1, -1, -1, -1],
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+                [0, 0, 0, 0, -1, 0, 0, 0, 0],
+            ]
+        )
     elif s == 11:
-        k = np.array([[0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [-1, -1, -1, -1, -1, 21, -1, -1, -1, -1, -1],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0]])
+        k = np.array(
+            [
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [-1, -1, -1, -1, -1, 21, -1, -1, -1, -1, -1],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0],
+            ]
+        )
     else:
         raise ValueError("unknown size s ={:.0f}".format(s))
     for i in range(ns):
-        data_sharpened = convolve2d(data_sharpened, k,
-                                    boundary='symm', mode='same')
+        data_sharpened = convolve2d(data_sharpened, k, boundary="symm", mode="same")
     return data_sharpened.ravel()
 
 
