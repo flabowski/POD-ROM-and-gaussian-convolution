@@ -22,7 +22,7 @@ def rect_pulse_sin(x, mu, w=0.075 + 1e-6, periodic=True):
 
 
 def saw_tooth(x, mu, w=0.075 + 1e-6, periodic=True):
-    w = 1 / 14
+    # w = 1 / 14
     y = np.zeros_like(x, dtype=np.float64)
     nonzero = (0 - 1e-6 < (x - mu)) & ((x - mu) < w)
     y[nonzero] = 1 / w * (x[nonzero] - mu)
