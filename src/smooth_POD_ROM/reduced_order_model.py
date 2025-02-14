@@ -92,6 +92,7 @@ def get_predictions(
     num_iter,
     shape,
     x,
+    sROM_only=False,
     monitor_progress_postprocessing=False,
     monitor_convergence=False,
     sigmaD="calc_based_on_distance",
@@ -100,6 +101,8 @@ def get_predictions(
     X_test_sROM = sROM.predict(mu_).snapshots_matrix
     mu_train = sROM.database.parameters_matrix
     data = X_test_sROM
+    if sROM_only:
+        return data, None
 
     # from datetime import datetime
     if monitor_convergence:
@@ -131,9 +134,13 @@ def get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs):
     mean_ROM = np.mean(e_ROM)
     e_sROM = L2_error_rw(X_test_sROM, X_test)
     mean_sROM = np.mean(e_sROM)
-    e_sROMs = L2_error_rw(X_test_sROMs, X_test)
-    mean_sROMs = np.mean(e_sROMs)
-    improvement = 100 * mean_sROMs / mean_ROM - 100
+    if isinstance(X_test_sROMs, np.ndarray):
+        e_sROMs = L2_error_rw(X_test_sROMs, X_test)
+        mean_sROMs = np.mean(e_sROMs)
+        improvement = 100 * mean_sROMs / mean_ROM - 100
+    else:  # sROM_only
+        improvement = 100 * mean_sROM / mean_ROM - 100
+        mean_sROMs = None
     return mean_ROM, mean_sROM, mean_sROMs, improvement
 
 
@@ -166,8 +173,27 @@ def target_function(case):
         X_test, X_test_ROM, X_test_sROM, X_test_sROMs
     )
     print(
-        "{:.0f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.4f}".format(
+        "num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement"
+    )
+    if "sROM_only" in case.keys():
+        if case["sROM_only"]:
+            print(
+                "{:.0f}, {:.0f}, {:.0f}, {:.8f}, -, {:.8f}, {:.8f}, -, {:.4f}".format(
+                    case["num_iter"],
+                    len(mu_train),
+                    len(mu_test),
+                    case["sigma"],
+                    mean_ROM,
+                    mean_sROM,
+                    improvement,
+                )
+            )
+            return mean_ROM, mean_sROM, mean_sROMs
+    print(
+        "{:.0f}, {:.0f}, {:.0f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.4f}".format(
             case["num_iter"],
+            len(mu_train),
+            len(mu_test),
             case["sigma"],
             case["c"],
             mean_ROM,
@@ -176,16 +202,17 @@ def target_function(case):
             improvement,
         )
     )
-    return mean_sROMs
+    return mean_ROM, mean_sROM, mean_sROMs
 
 
 def optimize_hyperparameters(case):
     rank = case["rank"]
-    sigma_opt = 1 / (rank * 2)
+    # sigma_opt = 1 / (rank * 2)
+    sigma_opt = 0.2 / rank  # optimal for saw tooth w=1/45
 
     def target(params):
         case["sigma"], case["c"] = params[0], params[1]
-        return target_function(case)
+        return target_function(case)[2]
 
     # x0 = np.array([sigma_opt, 1.0])
     # res = minimize(
@@ -197,4 +224,45 @@ def optimize_hyperparameters(case):
     # )
     bounds = Bounds([0.001, 0], [5 * sigma_opt, 10])
     res = direct(target, bounds, eps=1e-2, len_tol=0.025)  # max side length_abs=[0.006, 0.25]
+    print("optimization result for sigma:", 0.001, res["x"][0], 5 * sigma_opt, sigma_opt)
+    return res["x"]
+
+
+def optimize_sROMs_naive(case):
+    rank = case["rank"]
+    # sigma_opt = 1 / (rank * 2)
+    sigma_opt = 0.2 / rank  # optimal for saw tooth w=1/45
+    case["sigmaD"] = np.zeros((case["n_test"],))
+
+    def target(params):
+        case["sigma"], case["sigmaD"][:] = params[0], params[1]
+        case["c"] = case["sigmaD"][0]
+        return target_function(case)[2]
+
+    # x0 = np.array([sigma_opt, 1.0])
+    # res = minimize(
+    #     target,
+    #     x0,
+    #     method="SLSQP",
+    #     bounds=[(0.001, 5 * sigma_opt), (0, 10)],
+    #     options={"disp": True, "eps": np.array([0.0005, 0.05]), "maxiter": 25, "ftol": 0.0005},
+    # )
+    bounds = Bounds([0.001, 0.001], [5 * sigma_opt, 5 * sigma_opt])
+    res = direct(target, bounds, eps=1e-2, len_tol=0.025)  # max side length_abs=[0.006, 0.25]
+    print("optimization result for sigma:", 0.001, res["x"][0], 5 * sigma_opt, sigma_opt)
+    return res["x"]
+
+
+def optimize_sROM(case):
+    rank = case["rank"]
+    sigma_opt = 0.1 / (rank)
+
+    def target(params):
+        case["sigma"] = params[0]
+        return target_function(case)[1]
+
+    print("max:", 2 * sigma_opt)
+    bounds = Bounds([0.00001], [2 * sigma_opt])
+    res = direct(target, bounds, eps=1e-3, len_tol=0.0025)  # max side length_abs=[0.006, 0.25]
+    print("optim. res", case["rank"], sigma_opt, 5 * sigma_opt, res["x"])
     return res["x"]
