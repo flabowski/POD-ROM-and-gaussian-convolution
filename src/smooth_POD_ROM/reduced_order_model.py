@@ -110,10 +110,12 @@ def get_predictions(
     else:
         deconvolved = np.empty_like(data)
     for j in range(len(mu_)):
-        if sigmaD == "calc_based_on_distance":
+        if isinstance(sigmaD, np.ndarray):
+            sgm_est = sigmaD[j]
+        elif sigmaD == "calc_based_on_distance":
             sgm_est = get_sigma(sigma, mu_[j][None, ...], mu_train, c=c)
         else:
-            sgm_est = sigmaD[j]
+            raise ValueError("unknown method for sigmaD.")
         # t1 = datetime.now()
         deconvolved[j] = richardson_lucy(
             x,
