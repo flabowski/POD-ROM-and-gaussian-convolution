@@ -21,6 +21,14 @@ def rect_pulse_sin(x, mu, w=0.075 + 1e-6, periodic=True):
     return y + ys
 
 
+def small_saw_tooth(x, mu):
+    return saw_tooth(x, mu, w=1 / 45)
+
+
+def small_r_pulse(x, mu):
+    return rectangular_pulse(x, mu, w=0.015 + 1e-6)
+
+
 def saw_tooth(x, mu, w=0.075 + 1e-6, periodic=True):
     # w = 1 / 14
     y = np.zeros_like(x, dtype=np.float64)
