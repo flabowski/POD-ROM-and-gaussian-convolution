@@ -39,7 +39,13 @@ def get_data_rw(mu, sigma, g, x, **kwargs):
     dx = x[1] - x[0]
     X = snapshots_rowwise(g, x, mu)
     sig = sigma / dx
-    X_s = smoothen_rowwise(X, sig, x.shape)
+    truncate = 8
+    if "truncate" in kwargs.keys():
+        truncate = kwargs["truncate"]
+    mode = "wrap"
+    if "mode" in kwargs.keys():
+        mode = kwargs["mode"]
+    X_s = smoothen_rowwise(X, sig, x.shape, truncate=truncate, mode=mode)
     return X, X_s
 
 
@@ -110,6 +116,7 @@ def get_predictions(
     else:
         deconvolved = np.empty_like(data)
     for j in range(len(mu_)):
+        # TODO: make sigmaD a callable or somethign..
         if isinstance(sigmaD, np.ndarray):
             sgm_est = sigmaD[j]
         elif sigmaD == "calc_based_on_distance":
@@ -159,9 +166,7 @@ def target_function(case):
         X_train, X_train_s = get_data_rw(mu_train, **case)
 
     if "n_test" in case.keys():
-        mu_test, X_test, X_test_s = make_data_rw(
-            mu_train[1], mu_train[2], n_samples=case["n_test"], **case
-        )
+        mu_test, X_test, X_test_s = make_data_rw(mu_train[1], mu_train[2], n_samples=case["n_test"], **case)
     elif "mu_test" in case.keys():
         mu_test = case["mu_test"]
         X_test, X_test_s = get_data_rw(mu_test, **case)
@@ -171,12 +176,8 @@ def target_function(case):
 
     X_test_ROM = my_ROM.predict(mu_test).snapshots_matrix
     X_test_sROM, X_test_sROMs = get_predictions(my_sROM, mu_test, **case)
-    mean_ROM, mean_sROM, mean_sROMs, improvement = get_improvement(
-        X_test, X_test_ROM, X_test_sROM, X_test_sROMs
-    )
-    print(
-        "num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement"
-    )
+    mean_ROM, mean_sROM, mean_sROMs, improvement = get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs)
+    print("num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement")
     if "sROM_only" in case.keys():
         if case["sROM_only"]:
             print(
@@ -227,6 +228,7 @@ def optimize_hyperparameters(case):
     bounds = Bounds([0.001, 0], [5 * sigma_opt, 10])
     res = direct(target, bounds, eps=1e-2, len_tol=0.025)  # max side length_abs=[0.006, 0.25]
     print("optimization result for sigma:", 0.001, res["x"][0], 5 * sigma_opt, sigma_opt)
+    # TODO: check if bounds were OK
     return res["x"]
 
 
@@ -252,6 +254,7 @@ def optimize_sROMs_naive(case):
     bounds = Bounds([0.001, 0.001], [5 * sigma_opt, 5 * sigma_opt])
     res = direct(target, bounds, eps=1e-2, len_tol=0.025)  # max side length_abs=[0.006, 0.25]
     print("optimization result for sigma:", 0.001, res["x"][0], 5 * sigma_opt, sigma_opt)
+    # TODO: check if bounds were OK
     return res["x"]
 
 
@@ -267,4 +270,5 @@ def optimize_sROM(case):
     bounds = Bounds([0.00001], [2 * sigma_opt])
     res = direct(target, bounds, eps=1e-3, len_tol=0.0025)  # max side length_abs=[0.006, 0.25]
     print("optim. res", case["rank"], sigma_opt, 5 * sigma_opt, res["x"])
+    # TODO: check if bounds were OK
     return res["x"]

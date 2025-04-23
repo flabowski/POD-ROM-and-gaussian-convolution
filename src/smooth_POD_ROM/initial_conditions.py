@@ -29,6 +29,10 @@ def small_r_pulse(x, mu):
     return rectangular_pulse(x, mu, w=0.015 + 1e-6)
 
 
+def very_small_r_pulse(x, mu):
+    return rectangular_pulse(x, mu, w=0.01)
+
+
 def saw_tooth(x, mu, w=0.075 + 1e-6, periodic=True):
     # w = 1 / 14
     y = np.zeros_like(x, dtype=np.float64)

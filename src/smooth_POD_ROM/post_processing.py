@@ -45,6 +45,9 @@ def richardson_lucy(
         truncate = 5
     elif sgm / dx > 25:
         truncate = 5
+    # print(truncate)
+    # damping = 1.2
+    # truncate *= 2
     im_deconv = im_blur.copy()
     eps = 1e-12  # regularization to avoid 0 division
     if monitor_convergence:
@@ -57,9 +60,7 @@ def richardson_lucy(
         relative_blur = im_blur / blurred
         # im_deconv *= convolve2d(relative_blur, psf_mirror, boundary='symm', mode='same')
         # im_deconv *= convolve_f2D(relative_blur, psf_f2D)
-        error_estimate = gaussian_filter(
-            relative_blur, sigma=sgm / dx, truncate=truncate, mode=mode
-        )
+        error_estimate = gaussian_filter(relative_blur, sigma=sgm / dx, truncate=truncate, mode=mode)
         if damping:
             error_estimate[error_estimate > (1 + damping)] = 1 + damping
             error_estimate[error_estimate < (1 - damping)] = 1 - damping

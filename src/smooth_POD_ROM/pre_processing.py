@@ -31,18 +31,13 @@ def add_padding(subj, shape, mode="constant"):
     subj might be image or kernel.
     """
     # TODO: make it work in nd
-    msg = (
-        "please make sure the number of samples in all dimensions is odd to"
-        " avoid unexpected behaviour."
-    )
+    msg = "please make sure the number of samples in all dimensions is odd to" " avoid unexpected behaviour."
     for n in subj.shape:
         assert is_odd(n), msg
     for n in shape:
         assert is_odd(n), msg
     pad_x, pad_y = shape
-    padded = np.pad(
-        subj, [(pad_x // 2 + 1, pad_x // 2 + 1), (pad_y // 2 + 1, pad_y // 2 + 1)], mode=mode
-    )
+    padded = np.pad(subj, [(pad_x // 2 + 1, pad_x // 2 + 1), (pad_y // 2 + 1, pad_y // 2 + 1)], mode=mode)
     return padded
 
 
