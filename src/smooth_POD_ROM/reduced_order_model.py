@@ -7,32 +7,22 @@ from scipy.optimize import minimize
 from scipy.optimize import direct, Bounds
 
 
-def snapshots(g, x, mu):
-    X = np.zeros((len(x), len(mu)))
-    for j, mu_j in enumerate(mu):
-        y = g(x, mu_j)
-        X[:, j] = y
-    return X
+def make_training_data(case):
+    mu_min, mu_max = [0], [1]
+    n_samples = case["n_train"]
+    sigma, g, x = case["sigma"], case["g"], case["x"]
+    mu = np.linspace(mu_min, mu_max, n_samples, endpoint=False)
+    X, X_s = get_data_rw(mu, **case)
+    return mu, X, X_s
 
 
-def train_ROM(mu, X, rank):
-    db = Database(mu, X.T)
-    pod = POD(method="svd", rank=rank)  # = rom.reduction
-    reg = RegularGrid()  # = rom.approximation
-    rom = ROM(db, pod, reg)
-    rom.fit()
-    # pod.fit(db.snapshots.T)  # performs SVD
-    # reduced_output = pod.transform(db.snapshots.T).T  # transform reduces the given snapshots. = VT.T
-    # reg.fit(db.parameters, reduced_output)  # construct interpolators from points and values!
-    return rom
-
-
-def snapshots_rowwise(g, x, mu):
-    X = np.zeros((len(mu), len(x)))
-    for j, mu_j in enumerate(mu):
-        y = g(x, mu_j)
-        X[j] = y
-    return X
+def make_test_data(case):
+    mu_min, mu_max = [0], [1 - 1 / case["n_train"]]
+    n_samples = case["n_test"]
+    sigma, g, x = case["sigma"], case["g"], case["x"]
+    mu = np.atleast_2d(np.random.rand(n_samples)[:, None] * (mu_max[0] - mu_min[0]) + mu_min[0])
+    X, X_s = get_data_rw(mu, **case)
+    return mu, X, X_s
 
 
 def get_data_rw(mu, sigma, g, x, **kwargs):
@@ -49,40 +39,12 @@ def get_data_rw(mu, sigma, g, x, **kwargs):
     return X, X_s
 
 
-def make_data_rw(mu_min, mu_max, n_samples, g, x, sigma, **kwargs):
-    mu = np.linspace(mu_min, mu_max, n_samples, endpoint=False)
-    X, X_s = get_data_rw(mu, sigma, g, x, **kwargs)
-    return mu, X, X_s
-
-
-# def make_rand_data_rw(mu_min, mu_max, n_samples, g, x, sigma, **kwargs):
-#     mu = np.atleast_2d(np.random.rand(n_samples)[:, None] * (mu_max - mu_min) + mu_min)
-#     X, X_s = get_data_rw(mu, sigma, g, x, **kwargs)
-#     return mu, X, X_s
-
-
-def train_ROM_rw(mu, X, rank=False):
-    if not rank:
-        rank = len(mu)  # no model truncation
-    db = Database(mu, X)
-    pod = POD(method="svd", rank=rank)  # = rom.reduction
-    reg = RegularGrid()  # = rom.approximation
-    rom = ROM(db, pod, reg)
-    rom.fit()
-    # pod.fit(db.snapshots.T)  # performs SVD
-    # reduced_output = pod.transform(db.snapshots.T).T  # transform reduces the given snapshots. = VT.T
-    # reg.fit(db.parameters, reduced_output)  # construct interpolators from points and values!
-    return rom
-
-
-def L2_error(X, X_truth):
-    L2 = np.mean((X - X_truth) ** 2, axis=0) ** 0.5
-    return L2
-
-
-def delta_n_width(S, a, b):
-    delta_n = (np.cumsum(S[::-1] ** 2)[::-1] / a / b) ** 0.5
-    return delta_n
+def snapshots_rowwise(g, x, mu):
+    X = np.zeros((len(mu), len(x)))
+    for j, mu_j in enumerate(mu):
+        y = g(x, mu_j)
+        X[j] = y
+    return X
 
 
 def L2_error_rw(X, X_truth, axis=1):
@@ -104,6 +66,7 @@ def get_predictions(
     sigmaD="calc_based_on_distance",
     **kwargs
 ):
+    mu_ = np.asarray(mu_)
     X_test_sROM = sROM.predict(mu_).snapshots_matrix
     mu_train = sROM.database.parameters_matrix
     data = X_test_sROM
@@ -138,21 +101,6 @@ def get_predictions(
     return X_test_sROM, X_test_sROMs
 
 
-def get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs):
-    e_ROM = L2_error_rw(X_test_ROM, X_test)
-    mean_ROM = np.mean(e_ROM)
-    e_sROM = L2_error_rw(X_test_sROM, X_test)
-    mean_sROM = np.mean(e_sROM)
-    if isinstance(X_test_sROMs, np.ndarray):
-        e_sROMs = L2_error_rw(X_test_sROMs, X_test)
-        mean_sROMs = np.mean(e_sROMs)
-        improvement = 100 * mean_sROMs / mean_ROM - 100
-    else:  # sROM_only
-        improvement = 100 * mean_sROM / mean_ROM - 100
-        mean_sROMs = None
-    return mean_ROM, mean_sROM, mean_sROMs, improvement
-
-
 def target_function(case):
     if ("n_train" in case.keys()) and ("mu_train" in case.keys()):
         raise ValueError("training data is ambiguous, 'n_train' and 'mu_train' are given.")
@@ -166,7 +114,9 @@ def target_function(case):
         X_train, X_train_s = get_data_rw(mu_train, **case)
 
     if "n_test" in case.keys():
-        mu_test, X_test, X_test_s = make_data_rw(mu_train[1], mu_train[2], n_samples=case["n_test"], **case)
+        mu_test, X_test, X_test_s = make_data_rw(
+            mu_train[1], mu_train[2], n_samples=case["n_test"], **case
+        )
     elif "mu_test" in case.keys():
         mu_test = case["mu_test"]
         X_test, X_test_s = get_data_rw(mu_test, **case)
@@ -176,8 +126,12 @@ def target_function(case):
 
     X_test_ROM = my_ROM.predict(mu_test).snapshots_matrix
     X_test_sROM, X_test_sROMs = get_predictions(my_sROM, mu_test, **case)
-    mean_ROM, mean_sROM, mean_sROMs, improvement = get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs)
-    print("num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement")
+    mean_ROM, mean_sROM, mean_sROMs, improvement = get_improvement(
+        X_test, X_test_ROM, X_test_sROM, X_test_sROMs
+    )
+    print(
+        "num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement"
+    )
     if "sROM_only" in case.keys():
         if case["sROM_only"]:
             print(
@@ -225,11 +179,93 @@ def optimize_hyperparameters(case):
     #     bounds=[(0.001, 5 * sigma_opt), (0, 10)],
     #     options={"disp": True, "eps": np.array([0.0005, 0.05]), "maxiter": 25, "ftol": 0.0005},
     # )
-    bounds = Bounds([0.001, 0], [5 * sigma_opt, 10])
+    bounds = Bounds([0.001, 0], [5 * sigma_opt, 2])
     res = direct(target, bounds, eps=1e-2, len_tol=0.025)  # max side length_abs=[0.006, 0.25]
-    print("optimization result for sigma:", 0.001, res["x"][0], 5 * sigma_opt, sigma_opt)
+    print(
+        "optimization result for sigma:",
+        res["x"][0],
+        "bounds",
+        0.001,
+        5 * sigma_opt,
+        "guess:",
+        sigma_opt,
+    )
+    print("optimization result for c:", res["x"][1], "bounds", 0, 2)
+
     # TODO: check if bounds were OK
     return res["x"]
+
+
+def get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs):
+    e_ROM = L2_error_rw(X_test_ROM, X_test)
+    mean_ROM = np.mean(e_ROM)
+    e_sROM = L2_error_rw(X_test_sROM, X_test)
+    mean_sROM = np.mean(e_sROM)
+    if isinstance(X_test_sROMs, np.ndarray):
+        e_sROMs = L2_error_rw(X_test_sROMs, X_test)
+        mean_sROMs = np.mean(e_sROMs)
+        improvement = 100 * mean_sROMs / mean_ROM - 100
+    else:  # sROM_only
+        improvement = 100 * mean_sROM / mean_ROM - 100
+        mean_sROMs = None
+    return mean_ROM, mean_sROM, mean_sROMs, improvement
+
+
+# old:
+def snapshots(g, x, mu):
+    X = np.zeros((len(x), len(mu)))
+    for j, mu_j in enumerate(mu):
+        y = g(x, mu_j)
+        X[:, j] = y
+    return X
+
+
+def train_ROM(mu, X, rank):
+    db = Database(mu, X.T)
+    pod = POD(method="svd", rank=rank)  # = rom.reduction
+    reg = RegularGrid()  # = rom.approximation
+    rom = ROM(db, pod, reg)
+    rom.fit()
+    # pod.fit(db.snapshots.T)  # performs SVD
+    # reduced_output = pod.transform(db.snapshots.T).T  # transform reduces the given snapshots. = VT.T
+    # reg.fit(db.parameters, reduced_output)  # construct interpolators from points and values!
+    return rom
+
+
+def make_data_rw(mu_min, mu_max, n_samples, g, x, sigma, **kwargs):
+    mu = np.linspace(mu_min, mu_max, n_samples, endpoint=False)
+    X, X_s = get_data_rw(mu, sigma, g, x, **kwargs)
+    return mu, X, X_s
+
+
+# def make_rand_data_rw(mu_min, mu_max, n_samples, g, x, sigma, **kwargs):
+#     mu = np.atleast_2d(np.random.rand(n_samples)[:, None] * (mu_max - mu_min) + mu_min)
+#     X, X_s = get_data_rw(mu, sigma, g, x, **kwargs)
+#     return mu, X, X_s
+
+
+def train_ROM_rw(mu, X, rank=False):
+    if not rank:
+        rank = len(mu)  # no model truncation
+    db = Database(mu, X)
+    pod = POD(method="svd", rank=rank)  # = rom.reduction
+    reg = RegularGrid()  # = rom.approximation
+    rom = ROM(db, pod, reg)
+    rom.fit()
+    # pod.fit(db.snapshots.T)  # performs SVD
+    # reduced_output = pod.transform(db.snapshots.T).T  # transform reduces the given snapshots. = VT.T
+    # reg.fit(db.parameters, reduced_output)  # construct interpolators from points and values!
+    return rom
+
+
+def L2_error(X, X_truth):
+    L2 = np.mean((X - X_truth) ** 2, axis=0) ** 0.5
+    return L2
+
+
+def delta_n_width(S, a, b):
+    delta_n = (np.cumsum(S[::-1] ** 2)[::-1] / a / b) ** 0.5
+    return delta_n
 
 
 def optimize_sROMs_naive(case):
