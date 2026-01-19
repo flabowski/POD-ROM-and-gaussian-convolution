@@ -47,7 +47,14 @@ def snapshots_rowwise(g, x, mu):
     return X
 
 
+def L1_error_rw(X, X_truth, axis=1):
+    # print("L1")
+    L1 = np.mean(np.abs(X - X_truth), axis=axis)
+    return L1
+
+
 def L2_error_rw(X, X_truth, axis=1):
+    # print("L2")
     L2 = np.mean((X - X_truth) ** 2, axis=axis) ** 0.5
     return L2
 
@@ -93,7 +100,7 @@ def get_predictions(
             sgm_est,
             num_iter,
             monitor_convergence=monitor_convergence,
-        ).reshape(deconvolved[j].shape)
+        )[0].reshape(deconvolved[j].shape)
         # print("sgm=", sgm_est*1000, (datetime.now()-t1).total_seconds())
         if monitor_progress_postprocessing:
             print(j, end=", ")
@@ -121,13 +128,15 @@ def target_function(case):
         mu_test = case["mu_test"]
         X_test, X_test_s = get_data_rw(mu_test, **case)
 
+    norm = case.get("norm", L2_error_rw)
+    scaler = case.get("scaler", None)
     my_ROM = train_ROM_rw(mu_train, X_train)
     my_sROM = train_ROM_rw(mu_train, X_train_s)
 
     X_test_ROM = my_ROM.predict(mu_test).snapshots_matrix
     X_test_sROM, X_test_sROMs = get_predictions(my_sROM, mu_test, **case)
     mean_ROM, mean_sROM, mean_sROMs, improvement = get_improvement(
-        X_test, X_test_ROM, X_test_sROM, X_test_sROMs
+        X_test, X_test_ROM, X_test_sROM, X_test_sROMs, norm=norm, scaler=scaler
     )
     print(
         "num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement"
@@ -191,24 +200,60 @@ def optimize_hyperparameters(case):
         sigma_opt,
     )
     print("optimization result for c:", res["x"][1], "bounds", 0, 2)
-
+    print(res.message)
     # TODO: check if bounds were OK
     return res["x"]
 
 
-def get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs):
-    e_ROM = L2_error_rw(X_test_ROM, X_test)
+def get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs, norm, scaler):
+    if scaler:
+        X_test = scaler.scale_up(X_test)
+        X_test_ROM = scaler.scale_up(X_test_ROM)
+        X_test_sROM = scaler.scale_up(X_test_sROM)
+        X_test_sROMs = scaler.scale_up(X_test_sROMs)
+    e_ROM = norm(X_test_ROM, X_test)
     mean_ROM = np.mean(e_ROM)
-    e_sROM = L2_error_rw(X_test_sROM, X_test)
+    e_sROM = norm(X_test_sROM, X_test)
     mean_sROM = np.mean(e_sROM)
     if isinstance(X_test_sROMs, np.ndarray):
-        e_sROMs = L2_error_rw(X_test_sROMs, X_test)
+        e_sROMs = norm(X_test_sROMs, X_test)
         mean_sROMs = np.mean(e_sROMs)
         improvement = 100 * mean_sROMs / mean_ROM - 100
     else:  # sROM_only
         improvement = 100 * mean_sROM / mean_ROM - 100
         mean_sROMs = None
     return mean_ROM, mean_sROM, mean_sROMs, improvement
+
+
+def train_ROM_rw(mu, X, rank=False):
+    if not rank:
+        rank = len(mu)  # no model truncation
+    db = Database(mu, X)
+    pod = POD(method="svd", rank=rank)  # = rom.reduction
+    reg = RegularGrid()  # = rom.approximation
+    rom = ROM(db, pod, reg)
+    rom.fit()
+    # pod.fit(db.snapshots.T)  # performs SVD
+    # reduced_output = pod.transform(db.snapshots.T).T  # transform reduces the given snapshots. = VT.T
+    # reg.fit(db.parameters, reduced_output)  # construct interpolators from points and values!
+    return rom
+
+
+def optimize_sROM(case):
+    rank = case["rank"]
+    sigma_opt = 0.1 / (rank)
+
+    def target(params):
+        case["sigma"] = params[0]
+        return target_function(case)[1]
+
+    print("max:", 2 * sigma_opt)
+    bounds = Bounds([0.00001], [2 * sigma_opt])
+    res = direct(target, bounds, eps=1e-3, len_tol=0.0025)  # max side length_abs=[0.006, 0.25]
+    print("optim. res", case["rank"], sigma_opt, 5 * sigma_opt, res["x"])
+    print(res.message)
+    # TODO: check if bounds were OK
+    return res["x"]
 
 
 # old:
@@ -244,20 +289,6 @@ def make_data_rw(mu_min, mu_max, n_samples, g, x, sigma, **kwargs):
 #     return mu, X, X_s
 
 
-def train_ROM_rw(mu, X, rank=False):
-    if not rank:
-        rank = len(mu)  # no model truncation
-    db = Database(mu, X)
-    pod = POD(method="svd", rank=rank)  # = rom.reduction
-    reg = RegularGrid()  # = rom.approximation
-    rom = ROM(db, pod, reg)
-    rom.fit()
-    # pod.fit(db.snapshots.T)  # performs SVD
-    # reduced_output = pod.transform(db.snapshots.T).T  # transform reduces the given snapshots. = VT.T
-    # reg.fit(db.parameters, reduced_output)  # construct interpolators from points and values!
-    return rom
-
-
 def L2_error(X, X_truth):
     L2 = np.mean((X - X_truth) ** 2, axis=0) ** 0.5
     return L2
@@ -290,21 +321,6 @@ def optimize_sROMs_naive(case):
     bounds = Bounds([0.001, 0.001], [5 * sigma_opt, 5 * sigma_opt])
     res = direct(target, bounds, eps=1e-2, len_tol=0.025)  # max side length_abs=[0.006, 0.25]
     print("optimization result for sigma:", 0.001, res["x"][0], 5 * sigma_opt, sigma_opt)
-    # TODO: check if bounds were OK
-    return res["x"]
-
-
-def optimize_sROM(case):
-    rank = case["rank"]
-    sigma_opt = 0.1 / (rank)
-
-    def target(params):
-        case["sigma"] = params[0]
-        return target_function(case)[1]
-
-    print("max:", 2 * sigma_opt)
-    bounds = Bounds([0.00001], [2 * sigma_opt])
-    res = direct(target, bounds, eps=1e-3, len_tol=0.0025)  # max side length_abs=[0.006, 0.25]
-    print("optim. res", case["rank"], sigma_opt, 5 * sigma_opt, res["x"])
+    print(res.message)
     # TODO: check if bounds were OK
     return res["x"]
