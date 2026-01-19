@@ -8,6 +8,6 @@ Notebooks to generate the figures, see [notebooks](https://github.com/flabowski/
 
 Code, see [source code](https://github.com/flabowski/POD-ROM-and-gaussian-convolution/tree/main/src/smooth_POD_ROM)
 
-Install package in editable mode:  pip install -e .
+Install package in editable mode: `pip install -e .`
 
 <!-- Test if tests works: pytest -->
