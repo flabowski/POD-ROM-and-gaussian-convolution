@@ -3,6 +3,13 @@ from scipy.interpolate import griddata
 from scipy.fft import fft, ifft, fft2, ifft2, fftshift, ifftshift
 from scipy.ndimage import gaussian_filter
 
+try:
+    import cupy as cp
+    from cupyx.scipy.ndimage import gaussian_filter as gaussian_filter_gpu
+except ImportError:
+    cp = None
+    gaussian_filter_gpu = None
+
 
 def get_centers(points, triangles):
     return np.mean(points[triangles], axis=1)
@@ -99,12 +106,19 @@ def smoothen(X, sigma, shape, truncate=8, mode="wrap"):
 
 def smoothen_rowwise(X, sigma, shape, truncate=8, mode="wrap"):
     # sigma defined in terms of nodes not x!
-    # consider passing sigma/dx to this function
-    X_s = np.empty_like(X)
-    for i in range(X.shape[0]):
-        ss2D = X[i].reshape(shape)
-        # add padding?
-        X_s[i] = gaussian_filter(ss2D, sigma=sigma, truncate=truncate, mode=mode).ravel()
+    # pass sigma/dx to this function
+    if cp is not None and gaussian_filter_gpu is not None:
+        # GPU path: batch all rows as 3D (n, *shape), smooth in last two dims only
+        X_3d = X.reshape(X.shape[0], *shape)
+        X_gpu = cp.asarray(X_3d)
+        sigma_nd = (0, *len(shape) * [sigma])
+        smoothed = cp.asnumpy(gaussian_filter_gpu(X_gpu, sigma=sigma_nd, truncate=truncate, mode=mode))
+        X_s = smoothed.reshape(X.shape)
+    else:
+        X_s = np.empty_like(X)
+        for i in range(X.shape[0]):
+            ss2D = X[i].reshape(shape)
+            X_s[i] = gaussian_filter(ss2D, sigma=sigma, truncate=truncate, mode=mode).ravel()
     return X_s
 
 

@@ -2,15 +2,22 @@ import numpy as np
 from ezyrb import POD, Database, RegularGrid
 from ezyrb import ReducedOrderModel as ROM
 from smooth_POD_ROM.pre_processing import smoothen_rowwise
-from smooth_POD_ROM.post_processing import get_sigma, richardson_lucy
+from smooth_POD_ROM.post_processing import get_sigma, richardson_lucy, richardson_lucy_gpu, richardson_lucy2_gpu, get_sigma_batch
 from scipy.optimize import minimize
 from scipy.optimize import direct, Bounds
+
+try:
+    import cupy as cp
+    from cupyx.scipy.ndimage import gaussian_filter as gaussian_filter_gpu
+except ImportError:
+    cp = None
+    gaussian_filter_gpu = None
 
 
 def make_training_data(case):
     mu_min, mu_max = [0], [1]
     n_samples = case["n_train"]
-    sigma, g, x = case["sigma"], case["g"], case["x"]
+    # sigma, g, x = case["sigma"], case["g"], case["x"]
     mu = np.linspace(mu_min, mu_max, n_samples, endpoint=False)
     X, X_s = get_data_rw(mu, **case)
     return mu, X, X_s
@@ -19,7 +26,7 @@ def make_training_data(case):
 def make_test_data(case):
     mu_min, mu_max = [0], [1 - 1 / case["n_train"]]
     n_samples = case["n_test"]
-    sigma, g, x = case["sigma"], case["g"], case["x"]
+    # sigma, g, x = case["sigma"], case["g"], case["x"]
     mu = np.atleast_2d(np.random.rand(n_samples)[:, None] * (mu_max[0] - mu_min[0]) + mu_min[0])
     X, X_s = get_data_rw(mu, **case)
     return mu, X, X_s
@@ -59,26 +66,14 @@ def L2_error_rw(X, X_truth, axis=1):
     return L2
 
 
-def get_predictions(
-    sROM,
-    mu_,
-    sigma,
-    c,
-    num_iter,
-    shape,
-    x,
-    sROM_only=False,
-    monitor_progress_postprocessing=False,
-    monitor_convergence=False,
-    sigmaD="calc_based_on_distance",
-    **kwargs
-):
+def get_predictions(sROM, mu_, sigma, c, num_iter, shape, x, sROM_only=False, monitor_progress_postprocessing=False, monitor_convergence=False, sigmaD="calc_based_on_distance", **kwargs):
     mu_ = np.asarray(mu_)
     X_test_sROM = sROM.predict(mu_).snapshots_matrix
     mu_train = sROM.database.parameters_matrix
     data = X_test_sROM
     if sROM_only:
         return data, None
+    mode = kwargs.get("mode", "wrap")
 
     # from datetime import datetime
     if monitor_convergence:
@@ -94,17 +89,65 @@ def get_predictions(
         else:
             raise ValueError("unknown method for sigmaD.")
         # t1 = datetime.now()
-        deconvolved[j] = richardson_lucy(
+        res = richardson_lucy(
             x,
             data[j].reshape(shape),
             sgm_est,
             num_iter,
+            mode=mode,
             monitor_convergence=monitor_convergence,
-        )[0].reshape(deconvolved[j].shape)
+        )[
+            0
+        ].reshape(deconvolved[j].shape)
+        deconvolved[j] = res
         # print("sgm=", sgm_est*1000, (datetime.now()-t1).total_seconds())
         if monitor_progress_postprocessing:
             print(j, end=", ")
     X_test_sROMs = deconvolved
+    return X_test_sROM, X_test_sROMs
+
+
+def _smooth_gpu2_compute(imgs, sgm, truncate, mode):
+    return gaussian_filter_gpu(imgs, sigma=(0, sgm, sgm), truncate=truncate, mode=mode)
+
+
+def smooth_snapshots_gpu2(X, case):
+    shape = case["shape"]
+    sgm = case["sigma"] / case["dx"]
+    truncate = case["truncate"]
+    imgs = cp.asarray(X.reshape(-1, *shape).astype(np.float32))
+    mode = case["mode"]
+    out = _smooth_gpu2_compute(imgs, sgm, truncate, mode)
+    return cp.asnumpy(out).reshape(len(X), -1)
+
+
+def get_predictions_gpu(sROM, mu_, sigma, c, num_iter, shape, x, sROM_only=False, monitor_progress_postprocessing=False, monitor_convergence=False, sigmaD="calc_based_on_distance", **kwargs):
+    mu_ = np.asarray(mu_)
+    X_test_sROM = sROM.predict(mu_).snapshots_matrix
+    mu_train = sROM.database.parameters_matrix
+    data = X_test_sROM
+    if sROM_only:
+        return data, None
+    mode = kwargs.get("mode", "wrap")
+    cmax = kwargs.get("cmax", np.ones((len(mu_),)))
+
+    if monitor_convergence:
+        raise ValueError("use CPU version")
+    # Transfer all data to GPU once
+    data_gpu = cp.asarray(data.astype(np.float32))
+    deconvolved_gpu = cp.empty_like(data_gpu)
+
+    if isinstance(sigmaD, np.ndarray):
+        sgm_est = sigmaD
+    elif sigmaD == "calc_based_on_distance":
+        sgm_est = get_sigma_batch(sigma, mu_, mu_train, c=c)
+    else:
+        raise ValueError("unknown method for sigmaD.")
+
+    for j in range(len(mu_)):
+        res = richardson_lucy2_gpu(x, data_gpu[j].reshape(shape), sgm_est[j], num_iter, mode=mode, clip_max=cmax[j])[0].reshape(deconvolved_gpu[j].shape)
+        deconvolved_gpu[j] = res
+    X_test_sROMs = cp.asnumpy(deconvolved_gpu)
     return X_test_sROM, X_test_sROMs
 
 
@@ -121,9 +164,7 @@ def target_function(case):
         X_train, X_train_s = get_data_rw(mu_train, **case)
 
     if "n_test" in case.keys():
-        mu_test, X_test, X_test_s = make_data_rw(
-            mu_train[1], mu_train[2], n_samples=case["n_test"], **case
-        )
+        mu_test, X_test, X_test_s = make_data_rw(mu_train[1], mu_train[2], n_samples=case["n_test"], **case)
     elif "mu_test" in case.keys():
         mu_test = case["mu_test"]
         X_test, X_test_s = get_data_rw(mu_test, **case)
@@ -135,12 +176,8 @@ def target_function(case):
 
     X_test_ROM = my_ROM.predict(mu_test).snapshots_matrix
     X_test_sROM, X_test_sROMs = get_predictions(my_sROM, mu_test, **case)
-    mean_ROM, mean_sROM, mean_sROMs, improvement = get_improvement(
-        X_test, X_test_ROM, X_test_sROM, X_test_sROMs, norm=norm, scaler=scaler
-    )
-    print(
-        "num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement"
-    )
+    mean_ROM, mean_sROM, mean_sROMs, improvement = get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs, norm=norm, scaler=scaler)
+    print("num_iter, n_train, n_test, sigma_S, sigma_D/c, mean_ROM, mean_sROM, mean_sROMs, improvement")
     if "sROM_only" in case.keys():
         if case["sROM_only"]:
             print(
@@ -205,12 +242,13 @@ def optimize_hyperparameters(case):
     return res["x"]
 
 
-def get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs, norm, scaler):
+def get_improvement(X_test, X_test_ROM, X_test_sROM, X_test_sROMs, norm, scaler=False):
     if scaler:
-        X_test = scaler.scale_up(X_test)
-        X_test_ROM = scaler.scale_up(X_test_ROM)
-        X_test_sROM = scaler.scale_up(X_test_sROM)
-        X_test_sROMs = scaler.scale_up(X_test_sROMs)
+        raise ValueError("scale before passing to this function")
+        # X_test = scaler.scale_up(X_test)
+        # X_test_ROM = scaler.scale_up(X_test_ROM)
+        # X_test_sROM = scaler.scale_up(X_test_sROM)
+        # X_test_sROMs = scaler.scale_up(X_test_sROMs)
     e_ROM = norm(X_test_ROM, X_test)
     mean_ROM = np.mean(e_ROM)
     e_sROM = norm(X_test_sROM, X_test)
@@ -324,3 +362,61 @@ def optimize_sROMs_naive(case):
     print(res.message)
     # TODO: check if bounds were OK
     return res["x"]
+
+
+def optimize_hyperparameters_3d(case, method="lbfgsb"):
+    """
+    Optimize (sigma, sigmaD, num_iter) to maximize improvement.
+    method: "lbfgsb" (smooth, few evals) or "direct" (robust, more evals).
+    Use this instead of DIRECT when the improvement surface is smooth.
+    """
+    sigma_opt = 0.013
+    if "sigmaD" not in case or case["sigmaD"] is None:
+        case["sigmaD"] = np.zeros((case["n_test"],))
+
+    def target(params):
+        case["sigma"], case["c"], case["num_iter"] = params[0], False, int(round(params[2]))
+        case["sigmaD"][:] = params[1]
+        return target_function(case)[2]
+
+    bounds = ([0.001, 0.001, 1], [5 * sigma_opt, 5 * sigma_opt, 200])
+
+    if method == "direct":
+        res = direct(
+            lambda x: -target(x),
+            Bounds([b[0] for b in bounds], [b[1] for b in bounds]),
+            eps=1e-2,
+            len_tol=0.025,
+        )
+        x_best = res["x"]
+        print("DIRECT result:", x_best, "improvement", -res["fun"])
+        return x_best
+
+    # L-BFGS-B: minimize -improvement (smooth -> few evaluations)
+    def neg_target(x):
+        return -target(x)
+
+    # Multi-start to reduce risk of bad local minimum
+    starts = [
+        np.array([sigma_opt, sigma_opt, 100.0]),
+        np.array([0.001, 5 * sigma_opt, 50.0]),
+        np.array([5 * sigma_opt, 0.001, 150.0]),
+        np.array([sigma_opt * 2, sigma_opt * 0.5, 80.0]),
+        np.array([sigma_opt * 0.5, sigma_opt * 2, 120.0]),
+    ]
+    best_fun = np.inf
+    best_x = None
+    for x0 in starts:
+        res = minimize(
+            neg_target,
+            x0,
+            method="L-BFGS-B",
+            bounds=list(zip(bounds[0], bounds[1])),
+            options={"maxfun": 80, "ftol": 1e-4},
+        )
+        if res.fun < best_fun:
+            best_fun = res.fun
+            best_x = res.x
+    x_best = best_x
+    print("L-BFGS-B result: sigma=%.5f sigmaD=%.5f num_iter=%d improvement=%.2f" % (x_best[0], x_best[1], int(round(x_best[2])), -best_fun))
+    return x_best

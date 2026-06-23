@@ -2,7 +2,14 @@ import warnings
 import numpy as np
 from scipy.signal import convolve2d
 from scipy.ndimage import gaussian_filter
-from scipy.spatial import distance
+from scipy.spatial import distance, cKDTree
+
+try:
+    import cupy as cp
+    from cupyx.scipy.ndimage import gaussian_filter as gaussian_filter_gpu
+except ImportError:
+    cp = None
+    gaussian_filter_gpu = None
 
 
 def relative_distance_nearest_neighbour(single_point, points):
@@ -18,20 +25,17 @@ def get_sigma(sigma, mu, mu_train, c):
     return sigma * (1 + c * d)
 
 
-def richardson_lucy(
-    x,
-    im_blur,
-    sgm,
-    num_iter=50,
-    damping=2,
-    clip=True,
-    mode="wrap",
-    monitor_convergence=False,
-):
-    if not len(im_blur.shape) == 2:
-        warnings.warn("image needs to be 2D")
-    dx = x[1] - x[0]
-    # TODO: tuncate fixed length
+def get_sigma_batch(sigma, mu_, mu_train, c):
+    tree = cKDTree(mu_train)
+    dim = mu_train.shape[1]
+    n = 2**dim
+    dists, _ = tree.query(mu_, k=n, workers=-1)
+    d_ = dists[:, 0] / (dists.sum(axis=1) / dim)
+    return sigma * (1 + c * d_)
+
+
+def _richardson_lucy_truncate(sgm, dx):
+    """Truncate for Gaussian kernel (shared by CPU and GPU RL)."""
     truncate = 8
     if sgm / dx > 800:
         truncate = 1
@@ -45,13 +49,30 @@ def richardson_lucy(
         truncate = 5
     elif sgm / dx > 25:
         truncate = 5
-    # print(truncate)
-    # damping = 1.2
-    # truncate *= 2
+    return truncate
+
+
+def richardson_lucy(
+    x,
+    im_blur,
+    sgm,
+    num_iter=50,
+    damping=2,
+    clip=True,
+    mode="wrap",
+    monitor_convergence=False,
+    clip_min=0,
+    clip_max=1,
+):
+    if not len(im_blur.shape) == 2:
+        warnings.warn("image needs to be 2D")
+    dx = x[1] - x[0]
+    truncate = _richardson_lucy_truncate(sgm, dx)
     im_deconv = im_blur.copy()
     eps = 1e-12  # regularization to avoid 0 division
     if monitor_convergence:
         deconvolved_per_iter = np.empty((im_blur.size, num_iter))
+        err = np.empty((num_iter,))
     for k in range(num_iter):
         # blurred = convolve2d(im_deconv.copy(), psf, boundary='symm', mode='same') + eps
         # blurred = convolve_f2D(im_deconv, psf_f2D) + eps
@@ -66,13 +87,99 @@ def richardson_lucy(
             error_estimate[error_estimate < (1 - damping)] = 1 - damping
         im_deconv *= error_estimate
         if clip:
-            im_deconv[im_deconv < 0] = 0
-            im_deconv[im_deconv > 1] = 1
+            im_deconv[im_deconv < clip_min] = clip_min
+            im_deconv[im_deconv > clip_max] = clip_max
         if monitor_convergence:
+            err[k] = np.mean((im_blur - blurred) ** 2) ** 0.5  # np.mean(error_estimate)
             deconvolved_per_iter[:, k] = im_deconv.ravel()
     if monitor_convergence:
-        return deconvolved_per_iter
-    return im_deconv
+        return deconvolved_per_iter, err
+    return im_deconv, False
+
+
+def richardson_lucy_gpu(
+    x,
+    im_blur,
+    sgm,
+    num_iter=50,
+    damping=2,
+    clip=True,
+    mode="wrap",
+    monitor_convergence=False,
+    clip_min=0,
+    clip_max=1,
+):
+    """GPU Richardson–Lucy deconvolution. Requires CuPy. Same signature as richardson_lucy."""
+    if cp is None or gaussian_filter_gpu is None:
+        raise RuntimeError("richardson_lucy_gpu requires cupy and cupyx.scipy.ndimage")
+    if not len(im_blur.shape) == 2:
+        warnings.warn("image needs to be 2D")
+    if monitor_convergence:
+        raise ValueError("use CPU version")
+    dx = float(x[1] - x[0])
+    truncate = _richardson_lucy_truncate(sgm, dx)
+
+    im_deconv = im_blur.copy()
+    eps = 1e-7
+    sigma_pixels = sgm / dx
+    for k in range(num_iter):
+        blurred = gaussian_filter_gpu(im_deconv, sigma=sigma_pixels, truncate=truncate, mode=mode)
+        blurred[cp.abs(blurred) < eps] = eps
+        relative_blur = im_blur / blurred
+        error_estimate = gaussian_filter_gpu(relative_blur, sigma=sigma_pixels, truncate=truncate, mode=mode)
+        if damping:
+            error_estimate = cp.clip(error_estimate, 1 - damping, 1 + damping)
+        im_deconv = im_deconv * error_estimate
+        if clip:
+            im_deconv = cp.clip(im_deconv, clip_min, clip_max)
+    im_deconv_np = cp.asnumpy(im_deconv)
+    return im_deconv_np, False
+
+
+def richardson_lucy2_gpu(
+    x,
+    im_blur,
+    sgm,
+    num_iter=50,
+    damping=2,
+    clip=True,
+    mode="wrap",
+    clip_min=0,
+    clip_max=1,
+    filter_epsilon=1e-6,
+):
+    """GPU Richardson–Lucy deconvolution (improved). Uses filter_epsilon to avoid
+    blow-up where blurred is very small: relative_blur = 0 there instead of im_blur/blurred.
+    Same signature as richardson_lucy_gpu otherwise."""
+    if cp is None or gaussian_filter_gpu is None:
+        raise RuntimeError("richardson_lucy2_gpu requires cupy and cupyx.scipy.ndimage")
+    if not len(im_blur.shape) == 2:
+        warnings.warn("image needs to be 2D")
+
+    dx = float(x[1] - x[0])
+    truncate = _richardson_lucy_truncate(sgm, dx)
+
+    im_deconv = im_blur.copy()
+    eps = 1e-7
+    sigma_pixels = sgm / dx
+    for k in range(num_iter):
+        blurred = gaussian_filter_gpu(im_deconv, sigma=sigma_pixels, truncate=truncate, mode=mode)
+        blurred[cp.abs(blurred) < eps] = eps
+        if filter_epsilon is not None and filter_epsilon > 0:
+            relative_blur = cp.where(
+                blurred >= filter_epsilon,
+                im_blur / blurred,
+                cp.zeros_like(im_blur),
+            )
+        else:
+            relative_blur = im_blur / blurred
+        error_estimate = gaussian_filter_gpu(relative_blur, sigma=sigma_pixels, truncate=truncate, mode=mode)
+        if damping:
+            error_estimate = cp.clip(error_estimate, 1 - damping, 1 + damping)
+        im_deconv = im_deconv * error_estimate
+        if clip:
+            im_deconv = cp.clip(im_deconv, clip_min, clip_max)
+    return im_deconv, False
 
 
 def post_process(
