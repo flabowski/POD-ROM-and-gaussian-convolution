@@ -1,0 +1,11 @@
+Florian Arbes, Kent-Andre Mardal, Øyvind Jensen,
+Data regularization and deconvolution for non-intrusive reduced-order modeling of transport-dominated problems,
+Results in Applied Mathematics,
+Volume 32,
+2026,
+100775,
+ISSN 2590-0374,
+https://doi.org/10.1016/j.rinam.2026.100775.
+(https://www.sciencedirect.com/science/article/pii/S2590037426000932)
+Abstract: Projection-based reduced-order models (ROMs) often perform poorly for transport-dominated problems because the associated solution families have slowly decaying linear Kolmogorov (N)-widths. In sparse-data regimes, steep transported features may have little overlap between snapshots. Without alignment, proper orthogonal decomposition (POD) modes can become snapshot-like and reduced reconstructions fragmented. Smoothing broadens these features, increases their overlap between snapshots, and produces a snapshot family with improved linear compressibility. Motivated by this observation, we investigate whether smoothing followed by deconvolution can reduce the approximation error of POD-based ROMs. The proposed method regularizes snapshots offline and reconstructs sharp features online through deconvolution. We derive and validate a rank-dependent smoothing schedule σS(N) and a parameter-adaptive rule for the desmoothing width σD(μ). Online reconstruction uses an efficient iterative Richardson–Lucy-type method that aims to recover the underlying pre-blurred field rather than generically sharpening all gradients. Unlike other non-linear approaches, this method works well with limited data available. We demonstrate the method and its design rules for the one-dimensional linear transport equation and a two-dimensional scalar viscous Burgers-type problem. In sparse-data regimes, smoothing improves the reduced basis, while desmoothing provides additional error reductions relative to both a standard POD-ROM and its smoothed ROM baseline. For the two-dimensional example with interpolated reduced coefficients, the complete proposed pipeline can be trained and tuned within a few minutes, while individual fields are predicted in approximately 0.03 s using GPU-accelerated deconvolution.
+Keywords: Reduced-order modeling; Proper orthogonal decomposition; Transport-dominated problems; Kolmogorov N-width; Snapshot regularization; Richardson–Lucy deconvolution; Data-driven
