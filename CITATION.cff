@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "POD-ROM-and-gaussian-convolution"
+type: software
+
+authors:
+  - family-names: Arbes
+    given-names: Florian
+    orcid: "https://orcid.org/0000-0003-4691-9285"
+  - family-names: Mardal
+    given-names: Kent-Andre
+    orcid: "https://orcid.org/0000-0002-4946-1110"
+  - family-names: Jensen
+    given-names: Øyvind
+    orcid: "https://orcid.org/0000-0003-4353-9359"
+
+repository-code: "https://github.com/flabowski/POD-ROM-and-gaussian-convolution"
+
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Arbes
+      given-names: Florian
+      orcid: "https://orcid.org/0000-0003-4691-9285"
+    - family-names: Mardal
+      given-names: Kent-Andre
+      orcid: "https://orcid.org/0000-0002-4946-1110"
+    - family-names: Jensen
+      given-names: Øyvind
+      orcid: "https://orcid.org/0000-0003-4353-9359"
+  title: "Data regularization and deconvolution for non-intrusive reduced-order modeling of transport-dominated problems"
+  journal: "Results in Applied Mathematics"
+  volume: 32
+  year: 2026
+  doi: "10.1016/j.rinam.2026.100775"
+  url: "https://doi.org/10.1016/j.rinam.2026.100775"
